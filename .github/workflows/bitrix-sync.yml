@@ -24,12 +24,22 @@ jobs:
           node-version: 20
       - name: Install Firebase Admin
         working-directory: .github/sync
-        run: npm install --no-save --no-audit --no-fund firebase-admin@12.7.0 nodemailer@6.9.16
+        run: npm install --no-save --no-audit --no-fund firebase-admin@12.7.0 nodemailer@6.9.16 imapflow@1.0.171 mailparser@3.7.2
       - name: Bring in new Bitrix leads
         run: node .github/sync/bitrix-sync.mjs
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           BITRIX_WEBHOOK: ${{ secrets.BITRIX_WEBHOOK }}
+          LEADDESK_UID: ${{ secrets.LEADDESK_UID }}
+      - name: Alerts, email replies and Bitrix changes
+        if: always()
+        run: node .github/sync/alerts.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          BITRIX_WEBHOOK: ${{ secrets.BITRIX_WEBHOOK }}
+          ZOHO_EMAIL: ${{ secrets.ZOHO_EMAIL }}
+          ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
+          ZOHO_IMAP_HOST: ${{ secrets.ZOHO_IMAP_HOST }}
           LEADDESK_UID: ${{ secrets.LEADDESK_UID }}
       - name: Send waiting emails
         if: always()

@@ -54,7 +54,7 @@ export function plan(bxLeads, existing, now = Date.now()){
   return {creates, updates, moves};
 }
 
-function form(obj, pre = '', out = []){
+export function form(obj, pre = '', out = []){
   for (const [k, v] of Object.entries(obj)) { if (v === undefined || v === null) continue; const key = pre ? pre + '[' + k + ']' : k;
     if (typeof v === 'object') form(v, key, out); else out.push(encodeURIComponent(key) + '=' + encodeURIComponent(v)); }
   return out.join('&');
