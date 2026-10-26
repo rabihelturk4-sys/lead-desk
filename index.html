@@ -513,10 +513,12 @@ async function bxRun(){
         if (!id) throw {code: 'noid', message: 'The lead could not be found or created in Bitrix.'};
         if (job.method === 'crm.timeline.comment.add') job.params.fields.ENTITY_ID = id; else job.params.id = id;
       }
-      await bxCall(job.method, job.params); bxQ.shift(); bxSave(); S.bxErr = '';
+      if (job.method === 'ld.comment') await bxAddComment(job.params.id, job.params.text);
+      else await bxCall(job.method, job.params);
+      bxQ.shift(); bxSave(); S.bxErr = '';
     } catch (e) {
       if (e.code === 'net' || /^http5/.test(e.code)) { S.bxErr = e.message; break; }   /* offline: keep and retry later */
-      S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxQ.shift(); bxSave(); toast('Bitrix: ' + S.bxErr);
+      S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxQ.shift(); bxSave(); toast('Bitrix did not take the ' + job.what + ': ' + (e.message || e.code));
     }
   }
   bxBusy = false;
@@ -541,6 +543,14 @@ async function bxEnsure(l){
   return id;
 }
 const BX_SKIP = new Set(['created', 'note']);
+/* A note goes where you keep your notes in Bitrix: at the top of the lead's Comment field (newest first),
+   and also on the lead's timeline */
+async function bxAddComment(id, text){
+  const cur = await bxCall('crm.lead.get', {id});
+  const old = (cur && cur.COMMENTS) ? String(cur.COMMENTS) : '';
+  await bxCall('crm.lead.update', {id, fields: {COMMENTS: text + (old.trim() ? '\n\n' + old : '')}});
+  try { await bxCall('crm.timeline.comment.add', {fields: {ENTITY_ID: id, ENTITY_TYPE: 'lead', COMMENT: text}}); } catch (e) {}
+}
 /* New leads: every few minutes while the app is open, leads assigned to me in the chosen Bitrix stage ("Lead assigned")
    are added to Lead Desk in No answer, marked NEW until the first contact, and moved in Bitrix to the No answer stage. */
 const bxMe = () => { const m = bxHook().match(/\/rest\/(\d+)\//); return m ? m[1] : ''; };
@@ -588,7 +598,7 @@ function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
   const map = S.cfg.bxMap || {};
   if (p.stage && p.stage !== (before && before.stage) && map[p.stage]) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage]}}, 'stage ' + STAGE[p.stage]);
-  if (hist && !BX_SKIP.has(hist.k) && hist.txt) bxQueue(l, 'crm.timeline.comment.add', {fields: {ENTITY_ID: bxId(l) || undefined, ENTITY_TYPE: 'lead', COMMENT: bxStamp(Date.now()) + '\n' + hist.txt}}, 'comment');
+  if (hist && !BX_SKIP.has(hist.k) && hist.txt) bxQueue(l, 'ld.comment', {id: bxId(l) || undefined, text: bxStamp(Date.now()) + '\n' + hist.txt}, 'comment');
 }
 
 function patchLead(id, patch, hist, opts = {}){
@@ -1263,8 +1273,8 @@ document.addEventListener('click', e => {
     case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
     case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
       toast('Sending to Bitrix…');
-      bxEnsure(l).then(bid => bxCall('crm.timeline.comment.add', {fields: {ENTITY_ID: bid, ENTITY_TYPE: 'lead', COMMENT: (last ? bxStamp(last.t) + '\n' + last.txt : 'Connected from Lead Desk') + '\n(sent from Lead Desk)'}})
-        .then(() => { toast('Sent ✓ – check lead #' + bid + ' in Bitrix'); render(); }))
+      bxEnsure(l).then(bid => bxAddComment(bid, (last ? bxStamp(last.t) + '\n' + last.txt : 'Connected from Lead Desk'))
+        .then(() => { toast('Sent ✓ – check the Comment of lead #' + bid + ' in Bitrix'); render(); }))
         .catch(e => toast('Bitrix: ' + (e.message || e.code)));
       break; }
     case 'setMailMode': try { localStorage.setItem('mailMode', t.dataset.v); } catch (e) {} renderView(); toast('Emails open in ' + t.textContent); break;
