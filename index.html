@@ -1057,7 +1057,7 @@ function viewMsgs(){
     ${chipGroup('autoNaMail', [['0','Off'],['1','Email the client automatically after the 3rd No answer']], S.cfg.autoNaMail ? '1' : '0', 'setAutoNaMail')}
     <div class="hint">The final email is sent once per lead, after the 3rd No answer, from your Zoho mailbox within about 5–15 minutes, in the lead's language, with your business card. Edit the text in Messages → "Final email after 3rd No answer".${S.sync && S.sync.mailRun ? ` Last emails: ${S.sync.mailSent || 0} sent ${ago(S.sync.mailRun)}${S.sync.mailError ? ' – problem: ' + esc(S.sync.mailError) : ' ✓'}` : ''}${S.sync && S.sync.alertsRun ? ` Client replies checked ${ago(S.sync.alertsRun)}${S.sync.imapError ? ' – problem: ' + esc(S.sync.imapError) : ' ✓'}` : ''}</div>
     <div class="field"><span class="lbl">Follow-up email 3 days after "Options shared", "Brochure sent" or "Payment plan sent" (not sent if you talk before)</span>${chipGroup('autoFollow', [['1','On'],['0','Off']], autoOn('autoFollow') ? '1' : '0', 'setAuto')}</div>
-    <div class="field"><span class="lbl">Monthly update email to Pool and Buy later leads (uses this week's project, max 20 a day)</span>${chipGroup('autoMonthly', [['1','On'],['0','Off']], S.cfg.autoMonthly === true ? '1' : '0', 'setAuto')}</div>
+    <div class="field"><span class="lbl">Monthly update email to Pool and Buy later leads (uses this week's project, max 20 a day). Leads you chat with on WhatsApp get the monthly WhatsApp instead – never both. After 6 updates with no reaction: every 3 months</span>${chipGroup('autoMonthly', [['1','On'],['0','Off']], S.cfg.autoMonthly === true ? '1' : '0', 'setAuto')}</div>
     <div class="field"><span class="lbl">Calendar invite by email when you book a meeting</span>${chipGroup('autoInvite', [['1','On'],['0','Off']], autoOn('autoInvite') ? '1' : '0', 'setAuto')}</div>
     <button class="btn btn-ghost" data-act="testNaMail">Send a test of the final email to me (${esc(myEmail())})</button>
     <div class="field"><span class="lbl">Business card</span>${S.cfg.cardName ? `<div class="hint">✓ ${esc(S.cfg.cardName)} – attached to the automatic emails</div>${S.cardPreview ? `<img src="${S.cardPreview}" alt="Business card" style="max-width:100%;border-radius:8px">` : ''}` : '<div class="hint">No card yet – add a photo/image or PDF of your business card.</div>'}
@@ -1347,11 +1347,17 @@ function meetingIcs(l){
     'DESCRIPTION:' + e((l.meetingKind || 'Meeting') + (l.meetLink ? '\nLink: ' + l.meetLink : '')), `ORGANIZER;CN=${e(me)}:mailto:${myEmail()}`,
     `ATTENDEE;CN=${e(l.name)};ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:${l.email}`, 'STATUS:CONFIRMED', 'SEQUENCE:0', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
 }
-/* Monthly update to Pool and Buy later leads (max 20 a day, not to anyone contacted in the last week, never after "stop") */
+/* Monthly update email to Pool and Buy later leads that get it by email (max 20 a day, not to anyone contacted in the last week, never after "stop") */
 /* Monthly WhatsApp to Pool and Buy later leads: WhatsApp cannot be sent automatically from a phone number,
    so the app lines them up – tap Send, WhatsApp opens with the message ready, send it, come back and the next one is ready */
-const waMonthlyDue = () => { const now = Date.now(); return [...S.leads.values()].filter(l => ['pool','later'].includes(l.stage) && digits(l.phone).length >= 7 && !l.waUnsub
-  && (l.monthlyWaAt || 0) < now - 30*D && (l.lastAt || 0) < now - 7*D).sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0)).map(l => l.id); };
+/* One monthly update per lead, on one channel: WhatsApp if you have chatted there (or there is no email), otherwise email.
+   After 6 updates with no reaction it slows down to every 3 months; any contact after an update resets that. */
+const hasWaChat = l => (l.history || []).some(h => h.k === 'wa' && !/Monthly WhatsApp/.test(h.txt || ''));
+const monthlyByWa = l => digits(l.phone).length >= 7 && !l.waUnsub && (!l.email || l.unsub || hasWaChat(l));
+const monthlyGap = l => (l.monthlyN || 0) >= 6 && !((l.lastAt || 0) > (l.monthlyAt || 0)) ? 90*D : 30*D;
+const monthlyDue = (l, now = Date.now()) => ['pool','later'].includes(l.stage) && (l.lastAt || 0) < now - 7*D && now - (l.monthlyAt || 0) >= monthlyGap(l);
+const monthlyMark = (l, now = Date.now()) => ({monthlyAt: now, monthlyN: (l.lastAt || 0) > (l.monthlyAt || 0) ? 1 : (l.monthlyN || 0) + 1});
+const waMonthlyDue = () => [...S.leads.values()].filter(l => monthlyDue(l) && monthlyByWa(l)).sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0)).map(l => l.id);
 function startWaRun(){ const q = waMonthlyDue(); if (!q.length) { toast('Everyone got this month\'s WhatsApp'); return; } S.waRun = {q, i: 0, sent: 0}; openSheet('warun', q[0]); }
 function waRunNext(){ const r = S.waRun; if (!r) return; r.i++; while (r.i < r.q.length && !S.leads.get(r.q[r.i])) r.i++;
   if (r.i >= r.q.length) { S.waRun = null; closeSheet(); toast(`Done – ${r.sent} monthly WhatsApp sent`); render(); return; }
@@ -1361,8 +1367,8 @@ function queueMonthly(){
   const day = new Date().toDateString(); let n = S.cfg.monthlyDay === day ? S.cfg.monthlyCount || 0 : 0; const now = Date.now(); let added = 0;
   for (const l of S.leads.values()) {
     if (n >= 20) break;
-    if (!['pool','later'].includes(l.stage) || !l.email || l.unsub || (l.monthlyAt || 0) > now - 30*D || (l.lastAt || 0) > now - 7*D) continue;
-    queueMail(l, 'monthly_email'); patchLead(l.id, {monthlyAt: now}, null, {quiet: true}); n++; added++;
+    if (!l.email || l.unsub || !monthlyDue(l, now) || monthlyByWa(l)) continue;
+    queueMail(l, 'monthly_email'); patchLead(l.id, monthlyMark(l, now), null, {quiet: true}); n++; added++;
   }
   if (added) { S.cfg.monthlyDay = day; S.cfg.monthlyCount = n; saveCfg(); }
 }
@@ -1396,7 +1402,7 @@ document.addEventListener('click', e => {
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
     case 'startWaRun': startWaRun(); break;
-    case 'waRunSend': patchLead(id, {monthlyWaAt: Date.now()}, {k: 'wa', txt: 'Monthly WhatsApp update sent'}, {quiet: true}); S.waRun && S.waRun.sent++; later(waRunNext); break;
+    case 'waRunSend': patchLead(id, monthlyMark(S.leads.get(id)), {k: 'wa', txt: 'Monthly WhatsApp update sent'}, {quiet: true}); S.waRun && S.waRun.sent++; later(waRunNext); break;
     case 'waRunSkip': waRunNext(); break;
     case 'waRunStop': patchLead(id, {waUnsub: true}, {k: 'note', txt: 'No more monthly WhatsApp updates'}, {quiet: true}); waRunNext(); break;
     case 'waRunEnd': S.waRun = null; closeSheet(); render(); break;
