@@ -313,7 +313,7 @@ const CC = {'46':['🇸🇪','Sweden','sv'],'47':['🇳🇴','Norway','en'],'45'
 const digits = p => String(p || '').replace(/\D/g, '').replace(/^00/, '');
 function phoneInfo(p){ const d = digits(p); for (const n of [3,2,1]) { const c = CC[d.slice(0, n)]; if (c) return {flag:c[0], country:c[1], lang:c[2]}; } return {flag:'🌐', country:'', lang:'en'}; }
 
-const TPL_META = [['first','First contact'],['noanswer','Missed call'],['noanswer_late','Missed call – late there'],['intro_email','Email – introduction'],['na_email','Final email after 3rd No answer'],['followup_email','Email – 3 days after sharing info'],['monthly_email','Email – monthly update'],['invite_email','Email – meeting invitation'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
+const TPL_META = [['first','First contact'],['noanswer','Missed call'],['noanswer_late','Missed call – late there'],['intro_email','Email – introduction'],['na_email','Final email after 3rd No answer'],['followup_email','Email – 3 days after sharing info'],['monthly_email','Email – monthly update'],['monthly_wa','WhatsApp – monthly update'],['invite_email','Email – meeting invitation'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
 const TPL_LABEL = Object.fromEntries(TPL_META);
 const DEF_TPL = {
   en: {
@@ -324,6 +324,7 @@ const DEF_TPL = {
     intro_email: "Dear {name},\n\nMy name is {me}, and I am a property consultant with RTI Real Estate in Dubai. Thank you for your inquiry about property in Dubai.\n\nI tried to reach you by phone but was not able to get through, so I wanted to follow up by email.\n\nI would be glad to help you find the right option. So that I can advise you properly, could you briefly share what you are looking for?\n• Is it for investment, to live in, or a holiday home?\n• Which type of property and which area do you have in mind?\n• Your approximate budget and timeline\n\nPlease also let me know how you prefer to stay in touch – phone call, WhatsApp or email – and a time that suits you.\n\nI look forward to hearing from you.\n\nKind regards,",
     followup_email: "Dear {name},\n\nI hope you are well. I wanted to follow up on the information I shared with you a few days ago.\n\nHave you had a chance to look at it? I would be happy to answer any questions, arrange a call to go through the details, or send you more options that fit what you are looking for.\n\nJust reply to this email or let me know a good time to talk.\n\nKind regards,",
     monthly_email: "Dear {name},\n\nI hope you are well. I wanted to share a short update from the Dubai property market, as you were interested in property here.\n\nNew projects and payment plans are released regularly, and there are some good opportunities available right now.{projectline}\n\nIf your plans have changed, or you would like me to send you options that match your budget and goals, simply reply to this email – I am happy to help.\n\nIf you prefer not to receive these updates, just reply \"stop\".\n\nKind regards,",
+    monthly_wa: "Hi {name}, this is {me} from RTI Real Estate in Dubai. I hope you're well! A quick update: new projects and payment plans have been released this month.{projectline}\n\nWould you like me to send you the options that fit your budget? If you prefer not to get these updates, just reply STOP.",
     invite_email: "Dear {name},\n\nThank you for your time. As agreed, I have booked our meeting for {meeting}.\n\nThe calendar invitation is attached – simply accept it to add the meeting to your calendar.{linkline}\n\nIf you need to change the time, just reply to this email.\n\nLooking forward to speaking with you.\n\nKind regards,",
     declined: "Hi {name}, {me} here. I can see you're busy right now, no problem. When would be a better time for a quick call? You can also just reply here.",
     followup: "Hi {name}, just following up on our talk. Do you have any questions I can help with? Happy to send more details.",
@@ -341,6 +342,7 @@ const DEF_TPL = {
     intro_email: "Hej {name},\n\nMitt namn är {me} och jag är fastighetsrådgivare på RTI Real Estate i Dubai. Tack för din förfrågan om fastigheter i Dubai.\n\nJag försökte nå dig på telefon men fick inte tag på dig, så jag ville följa upp via mejl.\n\nJag hjälper dig gärna att hitta rätt alternativ. För att kunna ge dig bästa möjliga råd vore det fint om du kort berättar vad du söker:\n• Är det som investering, för att bo själv eller som fritidsbostad?\n• Vilken typ av bostad och vilket område har du i åtanke?\n• Ungefärlig budget och tidsplan\n\nBerätta också gärna hur du helst vill hålla kontakten – telefon, WhatsApp eller e-post – och vilken tid som passar dig.\n\nJag ser fram emot att höra från dig.\n\nMed vänliga hälsningar,",
     followup_email: "Hej {name},\n\nJag hoppas att allt är bra. Jag ville följa upp informationen jag skickade till dig för några dagar sedan.\n\nHar du hunnit titta på den? Jag svarar gärna på frågor, bokar ett samtal där vi går igenom detaljerna, eller skickar fler alternativ som passar det du söker.\n\nSvara bara på det här mejlet eller berätta när det passar att prata.\n\nMed vänliga hälsningar,",
     monthly_email: "Hej {name},\n\nJag hoppas att allt är bra. Jag ville dela en kort uppdatering från fastighetsmarknaden i Dubai, eftersom du har visat intresse för fastigheter här.\n\nNya projekt och betalningsplaner släpps löpande, och just nu finns det flera bra möjligheter.{projectline}\n\nOm dina planer har ändrats, eller om du vill att jag skickar alternativ som passar din budget och dina mål, svara bara på det här mejlet – jag hjälper dig gärna.\n\nOm du inte vill få dessa uppdateringar, svara bara \"stopp\".\n\nMed vänliga hälsningar,",
+    monthly_wa: "Hej {name}, det är {me} från RTI Real Estate i Dubai. Hoppas allt är bra! En kort uppdatering: nya projekt och betalningsplaner har släppts den här månaden.{projectline}\n\nVill du att jag skickar alternativ som passar din budget? Om du inte vill få dessa uppdateringar, svara bara STOPP.",
     invite_email: "Hej {name},\n\nTack för din tid. Som vi kom överens om har jag bokat vårt möte {meeting}.\n\nKalenderinbjudan är bifogad – acceptera den så hamnar mötet i din kalender.{linkline}\n\nOm du behöver ändra tiden, svara bara på det här mejlet.\n\nJag ser fram emot vårt samtal.\n\nMed vänliga hälsningar,",
     declined: "Hej {name}, {me} här. Jag ser att du är upptagen just nu, inga problem. När passar det bättre med ett kort samtal? Du kan också svara här.",
     followup: "Hej {name}, jag hör av mig efter vårt samtal. Har du några frågor? Jag skickar gärna mer information.",
@@ -358,6 +360,7 @@ const DEF_TPL = {
     intro_email: "مرحباً {name}،\n\nاسمي {me}، مستشار عقاري لدى RTI Real Estate في دبي. شكراً لاستفسارك عن العقارات في دبي.\n\nحاولت الاتصال بك هاتفياً ولكن لم أتمكن من الوصول إليك، لذلك أحببت أن أتابع معك عبر البريد الإلكتروني.\n\nيسعدني مساعدتك في إيجاد الخيار المناسب. ولأتمكن من تقديم أفضل استشارة لك، أرجو أن تخبرني باختصار عمّا تبحث عنه:\n• هل الهدف استثمار أم سكن أم منزل لقضاء العطلات؟\n• ما نوع العقار والمنطقة التي تفضلها؟\n• الميزانية التقريبية والإطار الزمني\n\nكما أرجو أن تخبرني بالطريقة التي تفضلها للتواصل – مكالمة هاتفية أو واتساب أو بريد إلكتروني – والوقت المناسب لك.\n\nأتطلع إلى سماع ردك.\n\nمع أطيب التحيات،",
     followup_email: "مرحباً {name}،\n\nأتمنى أن تكون بخير. أردت المتابعة بخصوص المعلومات التي أرسلتها لك قبل أيام.\n\nهل سنحت لك الفرصة للاطلاع عليها؟ يسعدني الإجابة على أي استفسار، أو ترتيب مكالمة لمناقشة التفاصيل، أو إرسال خيارات أخرى تناسب ما تبحث عنه.\n\nيمكنك الرد على هذه الرسالة أو إخباري بالوقت المناسب للحديث.\n\nمع أطيب التحيات،",
     monthly_email: "مرحباً {name}،\n\nأتمنى أن تكون بخير. أحببت أن أشاركك تحديثاً قصيراً عن سوق العقارات في دبي، نظراً لاهتمامك بالعقارات هنا.\n\nيتم إطلاق مشاريع وخطط دفع جديدة باستمرار، وتتوفر حالياً فرص جيدة.{projectline}\n\nإذا تغيرت خططك، أو أردت أن أرسل لك خيارات تناسب ميزانيتك وأهدافك، يكفي أن ترد على هذه الرسالة – يسعدني مساعدتك.\n\nإذا كنت لا ترغب في تلقي هذه التحديثات، يكفي أن ترد بكلمة \"stop\".\n\nمع أطيب التحيات،",
+    monthly_wa: "مرحباً {name}، معك {me} من RTI Real Estate في دبي. أتمنى أن تكون بخير! تحديث سريع: تم إطلاق مشاريع وخطط دفع جديدة هذا الشهر.{projectline}\n\nهل ترغب أن أرسل لك الخيارات المناسبة لميزانيتك؟ إذا كنت لا ترغب في تلقي هذه التحديثات، يكفي أن ترد بكلمة STOP.",
     invite_email: "مرحباً {name}،\n\nشكراً لوقتك. كما اتفقنا، قمت بحجز موعد اجتماعنا {meeting}.\n\nستجد دعوة التقويم مرفقة – يكفي قبولها لإضافة الاجتماع إلى تقويمك.{linkline}\n\nإذا احتجت إلى تغيير الموعد، يكفي أن ترد على هذه الرسالة.\n\nأتطلع إلى الحديث معك.\n\nمع أطيب التحيات،",
     declined: "مرحباً {name}، معك {me}. أرى أنك مشغول الآن، لا مشكلة. متى يناسبك وقت لمكالمة قصيرة؟ ويمكنك أيضاً الرد هنا.",
     followup: "مرحباً {name}، أتابع معك بعد حديثنا. هل لديك أي أسئلة؟ يسعدني إرسال المزيد من التفاصيل.",
@@ -375,6 +378,7 @@ const DEF_TPL = {
     intro_email: "Здравствуйте, {name}!\n\nМеня зовут {me}, я консультант по недвижимости в компании RTI Real Estate в Дубае. Спасибо за ваш запрос о недвижимости в Дубае.\n\nЯ пытался дозвониться до вас, но не смог, поэтому решил написать вам по электронной почте.\n\nБуду рад помочь вам подобрать подходящий вариант. Чтобы дать вам лучший совет, расскажите, пожалуйста, коротко, что вы ищете:\n• Это инвестиция, жильё для себя или дом для отдыха?\n• Какой тип недвижимости и какой район вас интересуют?\n• Примерный бюджет и сроки\n\nТакже сообщите, пожалуйста, как вам удобнее поддерживать связь — звонок, WhatsApp или e-mail — и в какое время.\n\nБуду рад вашему ответу.\n\nС уважением,",
     followup_email: "Здравствуйте, {name}!\n\nНадеюсь, у вас всё хорошо. Хотел уточнить по информации, которую я отправил вам несколько дней назад.\n\nУдалось ли вам её посмотреть? Буду рад ответить на вопросы, договориться о звонке, чтобы обсудить детали, или прислать другие варианты, подходящие под ваш запрос.\n\nПросто ответьте на это письмо или сообщите, когда вам удобно поговорить.\n\nС уважением,",
     monthly_email: "Здравствуйте, {name}!\n\nНадеюсь, у вас всё хорошо. Хочу поделиться коротким обновлением с рынка недвижимости Дубая, так как вы интересовались недвижимостью здесь.\n\nНовые проекты и планы оплаты выходят постоянно, и сейчас есть хорошие возможности.{projectline}\n\nЕсли ваши планы изменились или вы хотите, чтобы я подобрал варианты под ваш бюджет и цели, просто ответьте на это письмо – буду рад помочь.\n\nЕсли вы не хотите получать такие обновления, просто ответьте \"stop\".\n\nС уважением,",
+    monthly_wa: "Здравствуйте, {name}! Это {me} из RTI Real Estate в Дубае. Надеюсь, у вас всё хорошо! Коротко о новостях: в этом месяце вышли новые проекты и планы оплаты.{projectline}\n\nПрислать вам варианты под ваш бюджет? Если не хотите получать такие сообщения, просто ответьте STOP.",
     invite_email: "Здравствуйте, {name}!\n\nСпасибо за ваше время. Как договорились, я забронировал нашу встречу на {meeting}.\n\nПриглашение в календарь прикреплено – просто примите его, чтобы добавить встречу в свой календарь.{linkline}\n\nЕсли нужно изменить время, просто ответьте на это письмо.\n\nДо встречи!\n\nС уважением,",
     declined: "Здравствуйте, {name}! Это {me}. Вижу, что вы сейчас заняты, ничего страшного. Когда вам будет удобно коротко поговорить? Можно также ответить здесь.",
     followup: "Здравствуйте, {name}! Пишу после нашего разговора: остались ли у вас вопросы? С радостью пришлю больше информации.",
@@ -928,6 +932,7 @@ function viewToday(){
   ${section('new', 'New leads, not contacted', neu, '')}
   ${section('hot', 'Forgotten – no contact for 14+ days', forgot, '')}
   ${section('due', 'Buy later – time to contact again', laterBack, '')}
+  ${(() => { const n = waMonthlyDue().length; return n ? `<section><button class="btn btn-ghost btn-big" data-act="startWaRun">📣 Monthly WhatsApp to Pool &amp; Buy later · ${n} lead${n > 1 ? 's' : ''}</button></section>` : ''; })()}
   ${all.length ? '' : `<div class="empty">No leads yet. Tap <b>Add lead</b> below to add your first one. It takes about 10 seconds.</div>`}`;
 }
 function viewLeadsShell(){
@@ -1209,6 +1214,7 @@ const needsNext = l => l && isOpen(l) && (['talking','hot','meeting','nego'].inc
 function userClose(){
   const s = S.sheet, l = s && s.type === 'lead' && S.leads.get(s.id);
   if (S.rec) S.rec.stop();
+  if (s && s.type === 'warun') S.waRun = null;
   if (needsNext(l) && !S.focus) { openSheet('nextstep', l.id); return; }
   closeSheet();
 }
@@ -1218,7 +1224,14 @@ function renderSheet(){
   const s = S.sheet; if (!s) return; const l = S.leads.get(s.id); const box = $('#sheet');
   if (!l) { closeSheet(); return; }
   let h = '';
-  if (s.type === 'nextstep') {
+  if (s.type === 'warun') {
+    const r = S.waRun || {q: [l.id], i: 0}, txt = tplText(l.lang || 'en', 'monthly_wa', l);
+    h = head(`Monthly WhatsApp ${r.i + 1} of ${r.q.length}`, `${esc(l.flag || '')} ${esc(l.name || '')} · ${esc(STAGE[l.stage])} · last contact ${esc(lastContact(l))}`)
+      + `<div class="form"><div class="meetb" style="white-space:pre-wrap">${esc(txt)}</div>
+        <a class="btn btn-primary btn-big" href="${waLink(l, txt)}" ${waTarget()} data-act="waRunSend" data-id="${l.id}">Send on WhatsApp</a>
+        <div class="actions"><button class="btn btn-ghost" data-act="waRunSkip">Skip</button><button class="btn btn-ghost" data-act="waRunStop" data-id="${l.id}">No more updates for this lead</button><button class="btn btn-ghost" data-act="waRunEnd">Stop for now</button></div>
+        <div class="hint">After sending, come back to Lead Desk – the next lead is ready. The message uses the lead's language${(S.cfg.focus || {}).project ? ' and this week\'s project' : ' – set this week\'s project in Messages to include it'}.</div></div>`;
+  } else if (s.type === 'nextstep') {
     h = head('Next step for ' + esc(l.name || 'this lead'), 'Every active lead needs a follow-up date, so nobody is forgotten.')
       + `<div class="form"><div class="chips">${NEXT.map(n => `<button class="chip" data-act="nextPick" data-id="${l.id}" data-v="${n[0]}">${n[1]}</button>`).join('')}</div>
         <button class="btn btn-ghost" data-act="closeSheetForce">Close without a date</button></div>`;
@@ -1335,6 +1348,14 @@ function meetingIcs(l){
     `ATTENDEE;CN=${e(l.name)};ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:${l.email}`, 'STATUS:CONFIRMED', 'SEQUENCE:0', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
 }
 /* Monthly update to Pool and Buy later leads (max 20 a day, not to anyone contacted in the last week, never after "stop") */
+/* Monthly WhatsApp to Pool and Buy later leads: WhatsApp cannot be sent automatically from a phone number,
+   so the app lines them up – tap Send, WhatsApp opens with the message ready, send it, come back and the next one is ready */
+const waMonthlyDue = () => { const now = Date.now(); return [...S.leads.values()].filter(l => ['pool','later'].includes(l.stage) && digits(l.phone).length >= 7 && !l.waUnsub
+  && (l.monthlyWaAt || 0) < now - 30*D && (l.lastAt || 0) < now - 7*D).sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0)).map(l => l.id); };
+function startWaRun(){ const q = waMonthlyDue(); if (!q.length) { toast('Everyone got this month\'s WhatsApp'); return; } S.waRun = {q, i: 0, sent: 0}; openSheet('warun', q[0]); }
+function waRunNext(){ const r = S.waRun; if (!r) return; r.i++; while (r.i < r.q.length && !S.leads.get(r.q[r.i])) r.i++;
+  if (r.i >= r.q.length) { S.waRun = null; closeSheet(); toast(`Done – ${r.sent} monthly WhatsApp sent`); render(); return; }
+  openSheet('warun', r.q[r.i]); }
 function queueMonthly(){
   if (!S.ready || !S.cfgLoaded || S.cfg.autoMonthly !== true) return;   /* off until you turn it on */
   const day = new Date().toDateString(); let n = S.cfg.monthlyDay === day ? S.cfg.monthlyCount || 0 : 0; const now = Date.now(); let added = 0;
@@ -1374,6 +1395,11 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'startWaRun': startWaRun(); break;
+    case 'waRunSend': patchLead(id, {monthlyWaAt: Date.now()}, {k: 'wa', txt: 'Monthly WhatsApp update sent'}, {quiet: true}); S.waRun && S.waRun.sent++; later(waRunNext); break;
+    case 'waRunSkip': waRunNext(); break;
+    case 'waRunStop': patchLead(id, {waUnsub: true}, {k: 'note', txt: 'No more monthly WhatsApp updates'}, {quiet: true}); waRunNext(); break;
+    case 'waRunEnd': S.waRun = null; closeSheet(); render(); break;
     case 'setVoice': S.cfg.voiceLang = t.dataset.v; saveCfg(); renderView(); break;
     case 'startFocus': startFocus(); break;
     case 'startList': if (S.listIds && S.listIds.length) { S.focus = {q: [...S.listIds], i: 0, done: 0}; renderFocus(); } break;
