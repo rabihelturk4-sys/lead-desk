@@ -1,0 +1,1296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#161C28">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Lead Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Sora:wght@600;700&display=swap">
+<style>
+/* Layout: one mobile column (max 680px), sticky header, fixed bottom tab bar, bottom sheets for every action, full-screen calling mode */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E9ECF3; --ink:#141A27; --muted:#5B6477; --line:#DCE0E9;
+  --accent:#2446CF; --accent-ink:#FFFFFF; --accent-bg:#E6EBFC;
+  --hot:#D23F22; --hot-bg:#FCE9E4; --good:#127E54; --good-bg:#E0F3EA; --warn:#9A6200; --warn-bg:#FFF1D6; --wa:#0F8445; --wa-bg:#DFF3E7;
+  --f-display:"Sora","Segoe UI",system-ui,sans-serif; --f-body:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r:14px; --shadow:0 1px 2px rgba(20,26,39,.06),0 6px 20px rgba(20,26,39,.06);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D1119; --surface:#161C28; --surface2:#1F2634; --ink:#ECEFF5; --muted:#99A2B4; --line:#283041;
+  --accent:#8299FF; --accent-ink:#0D1119; --accent-bg:#1F2A4E;
+  --hot:#FF7255; --hot-bg:#3A1F1A; --good:#43C990; --good-bg:#15332A; --warn:#F2B44A; --warn-bg:#3A2D12; --wa:#3CCB78; --wa-bg:#143323;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1119; --surface:#161C28; --surface2:#1F2634; --ink:#ECEFF5; --muted:#99A2B4; --line:#283041;
+  --accent:#8299FF; --accent-ink:#0D1119; --accent-bg:#1F2A4E;
+  --hot:#FF7255; --hot-bg:#3A1F1A; --good:#43C990; --good-bg:#15332A; --warn:#F2B44A; --warn-bg:#3A2D12; --wa:#3CCB78; --wa-bg:#143323;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--f-body);font-size:15px;line-height:1.45;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:680px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:center;gap:12px;padding-block:12px}
+header h1{font-family:var(--f-display);font-size:19px;margin:0;letter-spacing:-.01em}
+header h1 span{color:var(--accent)}
+#sync{margin-left:auto;font-size:12px;color:var(--muted)}
+
+main{padding-block:16px calc(96px + env(safe-area-inset-bottom,0px))}
+main .wrap{display:flex;flex-direction:column;gap:20px}
+
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav.tabs .wrap{display:grid;grid-template-columns:repeat(4,1fr)}
+nav.tabs button{background:none;border:0;padding:10px 4px 12px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;color:var(--muted);font-weight:500}
+nav.tabs button svg{width:22px;height:22px}
+nav.tabs button.on{color:var(--accent)}
+nav.tabs .add-ico{background:var(--accent);color:var(--accent-ink);border-radius:10px;width:34px;height:26px;display:grid;place-items:center}
+nav.tabs .add-ico svg{width:18px;height:18px}
+
+.hero{background:var(--surface);border-radius:18px;padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:14px}
+.hero .date{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:var(--surface2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:2px}
+.stat b{font-family:var(--f-display);font-size:22px;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{font-size:12px;color:var(--muted)}
+.stat.hot b{color:var(--hot)}
+.stat.meet b{color:var(--good)}
+.focus-line{font-size:13px;color:var(--muted)}
+.focus-line b{color:var(--ink);font-weight:500}
+
+.btn{border:0;border-radius:12px;padding:12px 16px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;min-height:46px;text-align:center}
+.btn-primary{background:var(--accent);color:var(--accent-ink)}
+.btn-ghost{background:var(--surface2);color:var(--ink)}
+.btn-big{width:100%;font-size:17px;min-height:56px;border-radius:14px}
+.btn-danger{background:var(--hot-bg);color:var(--hot)}
+.btn:disabled{opacity:.5}
+
+h2.sec{font-family:var(--f-display);font-size:15px;margin:0 0 8px;display:flex;align-items:center;gap:8px;text-wrap:balance}
+h2.sec .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+h2.sec.hot .dot{background:var(--hot)} h2.sec.meet .dot{background:var(--good)} h2.sec.due .dot{background:var(--accent)} h2.sec.new .dot{background:var(--warn)}
+h2.sec small{color:var(--muted);font-family:var(--f-body);font-weight:500;font-size:13px}
+.list{display:flex;flex-direction:column;background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;background:none;border:0;border-bottom:1px solid var(--line);text-align:left;width:100%}
+.row:last-child{border-bottom:0}
+.av{width:38px;height:38px;border-radius:50%;background:var(--surface2);display:grid;place-items:center;font-weight:700;font-size:14px;flex:none;position:relative}
+.av.hot{background:var(--hot-bg);color:var(--hot)}
+.rmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.rname{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rsub{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rdue{font-size:12px;color:var(--muted);text-align:right;flex:none;max-width:92px;font-variant-numeric:tabular-nums}
+.rdue.over{color:var(--hot);font-weight:700}
+.empty{background:var(--surface);border-radius:var(--r);padding:16px;color:var(--muted);font-size:14px;border:1px dashed var(--line)}
+
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--surface2);color:var(--muted);letter-spacing:.02em;vertical-align:1px;white-space:nowrap}
+.pill.s-hot,.pill.s-nego{background:var(--hot-bg);color:var(--hot)}
+.pill.s-meeting,.pill.s-closed{background:var(--good-bg);color:var(--good)}
+.pill.s-new{background:var(--warn-bg);color:var(--warn)}
+.pill.s-talking{background:var(--accent-bg);color:var(--accent)}
+.pill.s-workshop{background:var(--accent-bg);color:var(--accent);border:1px dashed var(--accent)}
+.pill.s-pool{background:var(--surface2);color:var(--muted)}
+.updbox{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.updbox textarea.input{min-height:70px}
+.movebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip.wa.on{background:var(--wa);border-color:var(--wa);color:#fff}
+.cbtn.off{background:var(--surface2);color:var(--muted)}
+.pill.s-later{background:var(--surface2);color:var(--muted);border:1px dashed var(--line)}
+.pill.ex{background:var(--warn-bg);color:var(--warn)}
+.flame{color:var(--hot)}
+
+.search{display:flex;flex-direction:column;gap:10px}
+.input,textarea.input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:16px}
+textarea.input{min-height:84px;resize:vertical;line-height:1.4}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips.scroll{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:8px 13px;font-size:14px;font-weight:500;white-space:nowrap}
+.chip.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chip.t-hot.on{background:var(--hot);border-color:var(--hot);color:#fff}
+.chip.t-cold.on{background:var(--muted);border-color:var(--muted);color:var(--bg)}
+.chip small{opacity:.7;margin-left:4px}
+
+.form{display:flex;flex-direction:column;gap:16px}
+.field{display:flex;flex-direction:column;gap:7px}
+.field>label,.lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.hint{font-size:13px;color:var(--muted)}
+.det{font-size:14px;color:var(--good);font-weight:500;min-height:20px}
+.card{background:var(--surface);border-radius:var(--r);padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:14px}
+.card h3{margin:0;font-family:var(--f-display);font-size:15px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:420px){.row2{grid-template-columns:1fr}}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.actions .btn{flex:1}
+
+/* briefing */
+.brief{background:var(--surface);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px;border:1px solid var(--line)}
+.brief-label{font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.07em}
+.facts{display:flex;flex-wrap:wrap;gap:6px}
+.fact{font-size:13px;background:var(--surface2);border-radius:8px;padding:4px 9px}
+.bline{font-size:14px}
+.bline b{font-weight:700}
+.todo{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:8px 11px;font-weight:700;font-size:14px}
+.risk{background:var(--hot-bg);color:var(--hot);border-radius:10px;padding:8px 11px;font-weight:700;font-size:14px}
+.meetb{background:var(--good-bg);color:var(--good);border-radius:10px;padding:8px 11px;font-weight:700;font-size:14px}
+
+.contact{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.cbtn{border:0;border-radius:14px;min-height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-weight:700;font-size:14px;text-decoration:none;padding:8px 4px;text-align:center}
+.cbtn svg{width:22px;height:22px}
+.cbtn small{font-weight:500;font-size:11px;opacity:.8}
+.cbtn.call{background:var(--accent);color:var(--accent-ink)}
+.cbtn.wa{background:var(--wa);color:#fff}
+.cbtn.msg{background:var(--wa-bg);color:var(--wa)}
+.contact2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cbtn.sm{min-height:46px;flex-direction:row;gap:8px}
+.cbtn.sm svg{width:18px;height:18px}
+.cbtn.sms{background:var(--accent-bg);color:var(--accent)}
+.cbtn.mail{background:var(--surface2);color:var(--ink)}
+.cbtn.mail.none{color:var(--muted);font-weight:500}
+.tplwrap{display:flex;flex-direction:column;gap:6px}
+.copyb{align-self:flex-end;background:none;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--muted)}
+.num{display:flex;align-items:center;justify-content:center;gap:10px;font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.num button{background:none;border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:12px;color:var(--muted)}
+.outcomes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.obtn{border:1px solid var(--line);background:var(--surface);border-radius:12px;min-height:52px;padding:8px 10px;font-weight:700;font-size:14px;text-decoration:none;display:flex;align-items:center;justify-content:center;text-align:center;gap:6px}
+.obtn.na{background:var(--surface2);border-color:transparent}
+.obtn.nam{background:var(--wa-bg);color:var(--wa);border-color:transparent}
+.obtn.ok{background:var(--accent-bg);color:var(--accent);border-color:transparent}
+.obtn.mt{background:var(--good-bg);color:var(--good);border-color:transparent}
+.obtn.hotb{color:var(--hot)}
+.obtn.hotb.on{background:var(--hot);color:#fff;border-color:var(--hot)}
+.obtn.lost{color:var(--muted)}
+
+.timeline{display:flex;flex-direction:column}
+.crm summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--accent)}
+.crmtext{white-space:pre-wrap;font-size:13px;color:var(--muted);margin-top:8px;max-height:260px;overflow-y:auto;overflow-wrap:anywhere;background:var(--surface2);border-radius:8px;padding:10px}
+.tl{display:grid;grid-template-columns:88px 1fr;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.tl:last-child{border-bottom:0}
+.tl time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;padding-top:2px}
+details.edit{background:var(--surface);border-radius:var(--r);border:1px solid var(--line)}
+details.edit summary{padding:14px;font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between}
+details.edit summary::after{content:"Edit";color:var(--accent);font-weight:500}
+details.edit[open] summary::after{content:"Close"}
+details.edit .inner{padding:0 14px 16px;display:flex;flex-direction:column;gap:14px}
+
+/* sheet */
+#sheetWrap{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;justify-content:flex-end}
+.scrim{position:absolute;inset:0;background:rgba(8,11,18,.45)}
+.sheet{position:relative;background:var(--bg);border-radius:20px 20px 0 0;max-height:92%;overflow-y:auto;overscroll-behavior:contain;width:100%;max-width:720px;margin:0 auto;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}
+.sheet .wrap{display:flex;flex-direction:column;gap:14px;padding-block:6px 4px}
+.grab{width:40px;height:4px;border-radius:4px;background:var(--line);margin:10px auto 4px}
+.shead{display:flex;align-items:flex-start;gap:12px}
+.shead h2{margin:0;font-family:var(--f-display);font-size:20px;line-height:1.25;flex:1;min-width:0;overflow-wrap:anywhere}
+.shead .sub{font-size:13px;color:var(--muted);margin-top:3px}
+.x{background:var(--surface2);border:0;border-radius:50%;width:36px;height:36px;flex:none;font-size:18px;line-height:1}
+.tpl{display:flex;flex-direction:column;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;text-decoration:none}
+.tpl b{font-size:14px;display:flex;gap:8px;align-items:center}
+.tpl p{margin:0;font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.tpl.sug{border-color:var(--wa);background:var(--wa-bg)}
+.tpl.sug b::after{content:"Suggested";font-size:11px;background:var(--wa);color:#fff;border-radius:99px;padding:1px 7px;font-weight:700}
+[dir=rtl]{text-align:right}
+
+/* focus mode */
+#focus{position:fixed;inset:0;z-index:20;background:var(--bg);overflow-y:auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}
+.fbar{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line)}
+.fbar .wrap{display:flex;align-items:center;gap:10px;padding-block:10px}
+.fbar .prog{flex:1;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.fbar .prog small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.fbar button{background:var(--surface2);border:0;border-radius:10px;padding:8px 14px;font-weight:700}
+.fbody{display:flex;flex-direction:column;gap:14px;padding-block:16px}
+.fname{font-family:var(--f-display);font-size:24px;margin:0;line-height:1.2;overflow-wrap:anywhere}
+.fsub{color:var(--muted);font-size:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+.authbox{max-width:420px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding:24px max(16px,env(safe-area-inset-left,0px))}
+.authbox h2{font-family:var(--f-display);font-size:30px;margin:8px 0}.authbox h2 span{color:var(--accent)}
+#auth{position:fixed;inset:0;z-index:60;background:var(--bg);overflow-y:auto;padding-top:calc(40px + env(safe-area-inset-top,0px))}
+.linkbtn{background:none;border:0;color:var(--accent);font-weight:500;padding:4px 0;text-align:left;text-decoration:none}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:50;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:500;font-size:14px;max-width:calc(100% - 32px);box-shadow:var(--shadow)}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:12px 14px;font-size:14px}
+.confirm-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}}
+</style>
+</head>
+<body>
+
+<header class="top"><div class="wrap"><h1>Lead<span>Desk</span></h1><span id="sync">Connecting…</span></div></header>
+<main><div class="wrap" id="view"><div class="empty">Loading your leads…</div></div></main>
+<nav class="tabs"><div class="wrap">
+  <button data-act="tab" data-tab="today" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/><circle cx="12" cy="12" r="4"/></svg>Today</button>
+  <button data-act="tab" data-tab="leads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.5 3.5 5.2"/></svg>Leads</button>
+  <button data-act="tab" data-tab="add"><span class="add-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>Add lead</button>
+  <button data-act="tab" data-tab="msgs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5" stroke-linecap="round"/></svg>Messages</button>
+</div></nav>
+<div id="focus" hidden></div>
+<div id="sheetWrap" hidden><div class="scrim" data-act="closeSheet"></div><div class="sheet" id="sheet"></div></div>
+<div id="toast" hidden></div>
+<div id="auth" hidden></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const H = 3600e3, D = 24 * H;
+
+const STAGES = [['new','New'],['noanswer','No answer'],['talking','Pipeline'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost']];
+/* Best call windows in Dubai time, by the lead's dialling code */
+const WIN_GROUPS = [
+  [['971','968','974','965','973','966','962','961','20'], [[11,13],[16,19]], 'Gulf'],
+  [['44','353','351','354'], [[13,15],[17,19]], 'UK'],
+  [['31','32','33','34','39','41','43','45','46','47','48','49','358','30','36','420','40','90'], [[12,14],[17,19]], 'Europe'],
+  [['91','92','94','880','977'], [[9.5,11],[14.5,16.5]], 'South Asia'],
+  [['1','52','55'], [[16,17.5],[19,21]], 'Americas'],
+  [['61','64','65','60','852','86'], [[7,10],[12,14]], 'Asia-Pacific'],
+];
+function callWindows(l){ const d = digits(l.phone); for (const n of [3,2,1]) { const g = WIN_GROUPS.find(w => w[0].includes(d.slice(0, n))); if (g) return g[1]; } return [[11,13],[16,19]]; }
+const dubaiHour = () => { const n = new Date(); return (n.getUTCHours() + 4) % 24 + n.getUTCMinutes() / 60; };
+const fmtH = h => { const hh = Math.floor(h), mm = Math.round((h - hh) * 60); const ap = hh >= 12 ? 'PM' : 'AM'; const h12 = hh % 12 || 12; return h12 + (mm ? ':' + String(mm).padStart(2, '0') : '') + ' ' + ap; };
+const winText = l => callWindows(l).map(([a, b]) => fmtH(a) + '–' + fmtH(b)).join(' & ');
+const winOpen = l => { const h = dubaiHour(); return callWindows(l).some(([a, b]) => h >= a && h < b); };
+/* Next call-window start (early or evening, Dubai time) at least 30 min from now */
+function nextWindowAt(l, from = Date.now()){
+  const off = 4*H, day0 = Math.floor((from + off) / D) * D;
+  for (let k = 0; k < 3; k++) for (const [a] of callWindows(l)) { const t = day0 + k*D + a*H - off; if (t > from + 30*60e3) return t; }
+  return from + D;
+}
+function lastContact(l){ if (!l.lastAt) return 'Never contacted';
+  const d = new Date(l.lastAt);
+  const date = d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short', year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined});
+  const exact = (l.history || []).some(h => h.k !== 'created' && h.k !== 'note' && h.k !== 'stage' && Math.abs(h.t - l.lastAt) < 60e3) || l.crmTimeKnown;
+  return date + (exact ? ', ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''); }
+function winNext(l){ const h = dubaiHour(); const nx = callWindows(l).find(([a]) => a > h); return nx ? 'opens ' + fmtH(nx[0]) : 'closed for today'; }
+const STAGE = Object.fromEntries(STAGES);
+const OPT = {
+  budget: ['< 1M AED','1–2M AED','2–5M AED','5M+ AED'],
+  purpose: ['Investment','To live','Golden visa','Holiday home'],
+  ptype: ['Studio','1 BR','2 BR','3 BR+','Villa / TH'],
+  timeline: ['Ready now','1–3 months','3–6 months','Just looking'],
+  source: ['Meta ads','Instagram','TikTok','Referral','Portal','Website','Other'],
+};
+const QUICK_UPD = ['WhatsApp message shared','Options shared','Brochure sent','Payment plan sent','Voice message left','Email sent','They replied on WhatsApp'];
+const SAID = ['Interested','Wants brochure','Wants payment plan','Wants price list','Budget lower','Call back later','Busy now','Talking with partner','Comparing agents','Will visit Dubai','Prefers WhatsApp','Not ready yet'];
+const TODO_MAP = {'Wants brochure':'Send brochure','Wants payment plan':'Send payment plan','Wants price list':'Send price list','Call back later':'Call back','Busy now':'Call back','Will visit Dubai':'Plan viewing trip','Budget lower':'Find options in lower budget','Talking with partner':'Follow up after partner talk'};
+const LANGS = [['en','English'],['sv','Svenska'],['ar','العربية'],['ru','Русский']];
+const LOCALE = {en:'en-GB', sv:'sv-SE', ar:'ar', ru:'ru-RU'};
+
+function at10(days){ const d = new Date(); d.setDate(d.getDate() + days); d.setHours(10,0,0,0); return d.getTime(); }
+const NEXT = [['later','Later today',() => Date.now() + 3*H],['1','Tomorrow',() => at10(1)],['3','In 3 days',() => at10(3)],['7','1 week',() => at10(7)],['14','2 weeks',() => at10(14)],['30','1 month',() => at10(30)]];
+const NEXT_FN = Object.fromEntries(NEXT.map(n => [n[0], n[2]]));
+
+const CC = {'46':['🇸🇪','Sweden','sv'],'47':['🇳🇴','Norway','en'],'45':['🇩🇰','Denmark','en'],'358':['🇫🇮','Finland','en'],'971':['🇦🇪','UAE','ar'],'966':['🇸🇦','Saudi Arabia','ar'],'965':['🇰🇼','Kuwait','ar'],'974':['🇶🇦','Qatar','ar'],'973':['🇧🇭','Bahrain','ar'],'968':['🇴🇲','Oman','ar'],'20':['🇪🇬','Egypt','ar'],'962':['🇯🇴','Jordan','ar'],'961':['🇱🇧','Lebanon','ar'],'964':['🇮🇶','Iraq','ar'],'963':['🇸🇾','Syria','ar'],'212':['🇲🇦','Morocco','ar'],'213':['🇩🇿','Algeria','ar'],'216':['🇹🇳','Tunisia','ar'],'218':['🇱🇾','Libya','ar'],'249':['🇸🇩','Sudan','ar'],'967':['🇾🇪','Yemen','ar'],'970':['🇵🇸','Palestine','ar'],'7':['🇷🇺','Russia / Kazakhstan','ru'],'375':['🇧🇾','Belarus','ru'],'380':['🇺🇦','Ukraine','ru'],'998':['🇺🇿','Uzbekistan','ru'],'996':['🇰🇬','Kyrgyzstan','ru'],'992':['🇹🇯','Tajikistan','ru'],'993':['🇹🇲','Turkmenistan','ru'],'374':['🇦🇲','Armenia','ru'],'995':['🇬🇪','Georgia','ru'],'994':['🇦🇿','Azerbaijan','ru'],'373':['🇲🇩','Moldova','ru'],'44':['🇬🇧','UK','en'],'1':['🇺🇸','USA / Canada','en'],'49':['🇩🇪','Germany','en'],'33':['🇫🇷','France','en'],'39':['🇮🇹','Italy','en'],'34':['🇪🇸','Spain','en'],'31':['🇳🇱','Netherlands','en'],'32':['🇧🇪','Belgium','en'],'41':['🇨🇭','Switzerland','en'],'43':['🇦🇹','Austria','en'],'48':['🇵🇱','Poland','en'],'353':['🇮🇪','Ireland','en'],'263':['🇿🇼','Zimbabwe','en'],'354':['🇮🇸','Iceland','en'],'977':['🇳🇵','Nepal','en'],'94':['🇱🇰','Sri Lanka','en'],'244':['🇦🇴','Angola','en'],'972':['🇮🇱','Israel','en'],'351':['🇵🇹','Portugal','en'],'30':['🇬🇷','Greece','en'],'90':['🇹🇷','Turkey','en'],'98':['🇮🇷','Iran','en'],'91':['🇮🇳','India','en'],'92':['🇵🇰','Pakistan','en'],'880':['🇧🇩','Bangladesh','en'],'86':['🇨🇳','China','en'],'852':['🇭🇰','Hong Kong','en'],'65':['🇸🇬','Singapore','en'],'60':['🇲🇾','Malaysia','en'],'61':['🇦🇺','Australia','en'],'64':['🇳🇿','New Zealand','en'],'27':['🇿🇦','South Africa','en'],'234':['🇳🇬','Nigeria','en'],'254':['🇰🇪','Kenya','en'],'55':['🇧🇷','Brazil','en'],'52':['🇲🇽','Mexico','en']};
+const digits = p => String(p || '').replace(/\D/g, '').replace(/^00/, '');
+function phoneInfo(p){ const d = digits(p); for (const n of [3,2,1]) { const c = CC[d.slice(0, n)]; if (c) return {flag:c[0], country:c[1], lang:c[2]}; } return {flag:'🌐', country:'', lang:'en'}; }
+
+const TPL_META = [['first','First contact'],['noanswer','Missed call'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
+const TPL_LABEL = Object.fromEntries(TPL_META);
+const DEF_TPL = {
+  en: {
+    first: "Hi {name}, this is {me} from Dubai real estate. Thank you for your interest! Are you looking to invest or to live in Dubai? I'd love to send you the best options for you.",
+    noanswer: "Hi {name}, {me} here. I just tried to call you about Dubai property. When is a good time for a quick call?",
+    declined: "Hi {name}, {me} here. I can see you're busy right now, no problem. When would be a better time for a quick call? You can also just reply here.",
+    followup: "Hi {name}, just following up on our talk. Do you have any questions I can help with? Happy to send more details.",
+    offer: "Hi {name}, this week I'm working on {project} in {area}. Starting from {price} with a {plan} payment plan, handover {handover}. Would you like the brochure and floor plans?",
+    meeting_confirm: "Hi {name}, confirming our meeting on {meeting}. Looking forward to it! – {me}",
+    meeting_remind: "Hi {name}, a quick reminder about our meeting {meeting}. See you then!",
+    after_meeting: "Thank you for your time today, {name}! As promised, I'm sending you the details. Let me know which option you liked most.",
+    reengage: "Hi {name}, it's been a while! New opportunities have come up in Dubai, like {project}. Are you still interested in investing?"
+  },
+  sv: {
+    first: "Hej {name}, det är {me} som jobbar med fastigheter i Dubai. Tack för ditt intresse! Letar du efter en investering eller ett boende i Dubai? Jag skickar gärna de bästa alternativen för dig.",
+    noanswer: "Hej {name}, {me} här. Jag försökte precis ringa dig angående fastigheter i Dubai. När passar det med ett kort samtal?",
+    declined: "Hej {name}, {me} här. Jag ser att du är upptagen just nu, inga problem. När passar det bättre med ett kort samtal? Du kan också svara här.",
+    followup: "Hej {name}, jag hör av mig efter vårt samtal. Har du några frågor? Jag skickar gärna mer information.",
+    offer: "Hej {name}, den här veckan jobbar jag med {project} i {area}. Från {price} med betalplan {plan}, inflyttning {handover}. Vill du ha broschyr och planlösningar?",
+    meeting_confirm: "Hej {name}, jag bekräftar vårt möte {meeting}. Ser fram emot det! /{me}",
+    meeting_remind: "Hej {name}, en påminnelse om vårt möte {meeting}. Hörs då!",
+    after_meeting: "Tack för din tid idag, {name}! Som utlovat skickar jag informationen. Säg gärna vilket alternativ du gillade mest.",
+    reengage: "Hej {name}, det var ett tag sedan! Det har kommit nya möjligheter i Dubai, till exempel {project}. Är du fortfarande intresserad av att investera?"
+  },
+  ar: {
+    first: "مرحباً {name}، معك {me} من عقارات دبي. شكراً لاهتمامك! هل تبحث عن استثمار أم سكن في دبي؟ يسعدني أن أرسل لك أفضل الخيارات المناسبة لك.",
+    noanswer: "مرحباً {name}، معك {me}. حاولت الاتصال بك بخصوص عقارات دبي. متى يناسبك وقت لمكالمة قصيرة؟",
+    declined: "مرحباً {name}، معك {me}. أرى أنك مشغول الآن، لا مشكلة. متى يناسبك وقت لمكالمة قصيرة؟ ويمكنك أيضاً الرد هنا.",
+    followup: "مرحباً {name}، أتابع معك بعد حديثنا. هل لديك أي أسئلة؟ يسعدني إرسال المزيد من التفاصيل.",
+    offer: "مرحباً {name}، أعمل هذا الأسبوع على مشروع {project} في {area}. الأسعار تبدأ من {price} مع خطة دفع {plan}، والتسليم {handover}. هل ترغب في الكتيّب والمخططات؟",
+    meeting_confirm: "مرحباً {name}، أؤكد موعد اجتماعنا {meeting}. بانتظار لقائك! — {me}",
+    meeting_remind: "مرحباً {name}، تذكير بموعد اجتماعنا {meeting}. إلى اللقاء!",
+    after_meeting: "شكراً لوقتك اليوم يا {name}! كما وعدتك، أرسل لك التفاصيل. أخبرني أي خيار أعجبك أكثر.",
+    reengage: "مرحباً {name}، مضى وقت منذ آخر تواصل! هناك فرص جديدة في دبي مثل {project}. هل ما زلت مهتماً بالاستثمار؟"
+  },
+  ru: {
+    first: "Здравствуйте, {name}! Это {me}, недвижимость в Дубае. Спасибо за ваш интерес! Вы рассматриваете инвестицию или жильё в Дубае? С удовольствием подберу для вас лучшие варианты.",
+    noanswer: "Здравствуйте, {name}! Это {me}. Не получается до вас дозвониться по поводу недвижимости в Дубае. Когда вам удобно коротко поговорить?",
+    declined: "Здравствуйте, {name}! Это {me}. Вижу, что вы сейчас заняты, ничего страшного. Когда вам будет удобно коротко поговорить? Можно также ответить здесь.",
+    followup: "Здравствуйте, {name}! Пишу после нашего разговора: остались ли у вас вопросы? С радостью пришлю больше информации.",
+    offer: "Здравствуйте, {name}! На этой неделе я работаю с проектом {project} в {area}. Цены от {price}, план оплаты {plan}, сдача {handover}. Прислать вам брошюру и планировки?",
+    meeting_confirm: "Здравствуйте, {name}! Подтверждаю нашу встречу {meeting}. До встречи! — {me}",
+    meeting_remind: "Здравствуйте, {name}! Напоминаю о нашей встрече {meeting}. До скорой встречи!",
+    after_meeting: "Спасибо за ваше время сегодня, {name}! Как договаривались, отправляю детали. Напишите, какой вариант понравился больше всего.",
+    reengage: "Здравствуйте, {name}! Давно не общались. В Дубае появились новые возможности, например {project}. Вам всё ещё интересны инвестиции?"
+  }
+};
+
+const S = { leads: new Map(), cfg: {}, cfgLoaded: false, ready: false, dbOk: null, tab: 'today', q: '', stageF: 'open', countryF: '', sortBy: 'time', tplLang: 'en',
+  focus: null, sheet: null, form: {}, draft: {}, confirmDel: false };
+let db = null;  /* set after sign-in: Firestore wrapper with collection(path) and doc(path) */
+
+/* ---------- helpers ---------- */
+function ago(t){ if (!t) return 'never'; const s = (Date.now() - t) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s/60) + 'm ago'; if (s < 86400) return Math.floor(s/3600) + 'h ago'; const d = Math.floor(s/86400); return d === 1 ? 'yesterday' : d + ' days ago'; }
+function when(t){ if (!t) return '—'; const d = new Date(t), n = new Date(); const tm = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  if (d.toDateString() === n.toDateString()) return 'Today ' + tm;
+  const tm1 = new Date(n); tm1.setDate(n.getDate() + 1); if (d.toDateString() === tm1.toDateString()) return 'Tomorrow ' + tm;
+  const y = new Date(n); y.setDate(n.getDate() - 1); if (d.toDateString() === y.toDateString()) return 'Yesterday ' + tm;
+  return d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'}) + ' ' + tm; }
+const endToday = () => { const d = new Date(); d.setHours(23,59,59,999); return d.getTime(); };
+const isOpen = l => !['closed','lost','later','pool','workshop'].includes(l.stage);
+/* How this lead may be contacted (a contact preference, not a stage) */
+const WAYS = [['any','Calls + WhatsApp'],['wa','WhatsApp only'],['call','Calls only'],['sms','SMS only']];
+const WAY = Object.fromEntries(WAYS);
+function contactWay(l){
+  if (l.contactWay) return l.contactWay;
+  if (l.waOnly === true) return 'wa'; if (l.waOnly === false) return 'any';
+  const r = l.rule || '';
+  if (/sms, no calls/i.test(r)) return 'sms';
+  if (/whatsapp/i.test(r) && /no calls/i.test(r)) return 'wa';
+  if (/no whatsapp/i.test(r)) return 'call';
+  return 'any';
+}
+const isWaOnly = l => contactWay(l) === 'wa';
+const isWayRule = r => /no calls|no whatsapp|sms, no calls/i.test(r || '');
+const isHot = l => !!l.hot || ['hot','meeting','nego'].includes(l.stage);
+function atRisk(l){ if (!isOpen(l) || !isHot(l)) return false; const n = Date.now(); return !l.nextAt || l.nextAt < n || !l.lastAt || l.lastAt < n - 2*D; }
+const isDue = l => !!l.nextAt && l.nextAt <= endToday() && l.stage !== 'closed';
+const isNew = l => l.stage === 'new' && !l.lastAt;
+const byNext = (a, b) => (winOpen(b) - winOpen(a)) || ((a.nextAt || 0) - (b.nextAt || 0));
+const initials = n => (n || '?').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
+const lastHist = l => (l.history || []).filter(h => h.k !== 'created').slice(-1)[0];
+const getTpl = (lang, k) => (S.cfg.templates && S.cfg.templates[lang] && S.cfg.templates[lang][k]) || DEF_TPL[lang][k];
+function fill(txt, l){
+  const f = S.cfg.focus || {}; const first = (l.name || '').trim().split(/\s+/)[0] || '';
+  const mt = l.meetingAt ? new Date(l.meetingAt).toLocaleString(LOCALE[l.lang] || 'en-GB', {weekday:'long', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit', timeZoneName:'short'}) : '';
+  const map = {link: l.meetLink || '', name:first, me:S.cfg.myName || '', project:f.project || l.project || '', area:f.area || '', price:f.price || '', plan:f.plan || '', handover:f.handover || '', meeting:mt};
+  return txt.replace(/\{(\w+)\}/g, (m, k) => k in map ? map[k] : m).replace(/\s+([,.!?،])/g, '$1');
+}
+const DEF_SUBJ = {
+  en: {first:'Dubai property options for you', noanswer:'I tried to call you', declined:'A better time to talk?', followup:'Following up', offer:'{project} – new opportunity in Dubai', meeting_confirm:'Meeting confirmed: {meeting}', meeting_remind:'Reminder: our meeting {meeting}', after_meeting:'Thank you for today', reengage:'New opportunities in Dubai'},
+  sv: {first:'Fastighetsalternativ i Dubai för dig', noanswer:'Jag försökte ringa dig', declined:'När passar det att prata?', followup:'Uppföljning', offer:'{project} – ny möjlighet i Dubai', meeting_confirm:'Möte bekräftat: {meeting}', meeting_remind:'Påminnelse: vårt möte {meeting}', after_meeting:'Tack för idag', reengage:'Nya möjligheter i Dubai'},
+  ar: {first:'خيارات عقارية في دبي لك', noanswer:'حاولت الاتصال بك', declined:'متى يناسبك الحديث؟', followup:'متابعة', offer:'{project} – فرصة جديدة في دبي', meeting_confirm:'تأكيد الاجتماع: {meeting}', meeting_remind:'تذكير: اجتماعنا {meeting}', after_meeting:'شكراً على وقتك اليوم', reengage:'فرص جديدة في دبي'},
+  ru: {first:'Варианты недвижимости в Дубае для вас', noanswer:'Не получилось дозвониться', declined:'Когда удобно поговорить?', followup:'Продолжение нашего разговора', offer:'{project} – новая возможность в Дубае', meeting_confirm:'Встреча подтверждена: {meeting}', meeting_remind:'Напоминание о встрече {meeting}', after_meeting:'Спасибо за встречу', reengage:'Новые возможности в Дубае'}
+};
+const CH = {wa:'WhatsApp', sms:'SMS', email:'Email'};
+const LINK_LBL = {en:'Meeting link: ', sv:'Möteslänk: ', ar:'رابط الاجتماع: ', ru:'Ссылка на встречу: '};
+function tplText(L, k, l){
+  const raw = getTpl(L, k); let txt = fill(raw, {...l, lang: L});
+  if (l.meetLink && (k === 'meeting_confirm' || k === 'meeting_remind') && !raw.includes('{link}')) txt += '\n' + LINK_LBL[L] + l.meetLink;
+  return txt;
+}
+const smsLink = (l, text) => 'sms:+' + digits(l.phone) + (text ? '?&body=' + encodeURIComponent(text) : '');
+const mailLink = (l, subj, body) => 'mailto:' + encodeURIComponent(l.email || '').replace(/%40/g, '@') + '?subject=' + encodeURIComponent(subj || '') + '&body=' + encodeURIComponent(body || '');
+function msgLink(ch, l, k){
+  const L = l.lang || 'en';
+  if (k === 'own') return ch === 'sms' ? smsLink(l) : ch === 'email' ? mailLink(l, '', '') : waLink(l);
+  const txt = tplText(L, k, l);
+  if (ch === 'sms') return smsLink(l, txt);
+  if (ch === 'email') return mailLink(l, fill(DEF_SUBJ[L][k], l), txt + (S.cfg.myName ? '\n\n' + S.cfg.myName : ''));
+  return waLink(l, txt);
+}
+const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+function waMode(){ try { const v = localStorage.getItem('waMode'); if (v === 'app' || v === 'web') return v; } catch (e) {} return IS_MOBILE ? 'app' : 'web'; }
+const waLink = (l, text) => waMode() === 'app'
+  ? 'whatsapp://send?phone=' + digits(l.phone) + (text ? '&text=' + encodeURIComponent(text) : '')
+  : 'https://wa.me/' + digits(l.phone) + (text ? '?text=' + encodeURIComponent(text) : '');
+/* Phone, WhatsApp, SMS and email links always open OUTSIDE the page: inside the Claude app,
+   opening them in the page's own frame shows "This content is blocked". */
+const EXT = '';  /* tel:, sms:, mailto:, whatsapp: open the phone's own apps */
+const waTarget = () => waMode() === 'web' ? 'target="_blank" rel="noopener"' : '';
+/* How the Call button opens the dialer on this device (phones differ inside the Claude app) */
+const CALL_MODES = [['blank','1 · New window'],['top','2 · Same window'],['intent','3 · Android dialer'],['open','4 · Pop-up']];
+function callMode(){ try { const v = localStorage.getItem('callMode'); if (CALL_MODES.some(m => m[0] === v)) return v; } catch (e) {} return 'blank'; }
+function telLink(num, cls, inner){
+  const n = '+' + digits(num);
+  return `<a class="${cls}" href="tel:${n}" data-act="dial" data-v="${n}">${inner}</a>`;
+}
+function suggestTpl(l){
+  const n = Date.now();
+  if (l.stage === 'meeting') { if (l.meetingAt && l.meetingAt < n) return 'after_meeting'; return (l.meetingAt && l.meetingAt - n < 30*H) ? 'meeting_remind' : 'meeting_confirm'; }
+  if (l.stage === 'lost' || (l.lastAt && n - l.lastAt > 30*D)) return 'reengage';
+  if (l.lastOutcome === 'declined') return 'declined';
+  if (isNew(l)) return 'first';
+  if (l.stage === 'noanswer' || (l.noAnswer || 0) > 0) return 'noanswer';
+  if (l.stage === 'hot' || l.stage === 'nego') return 'offer';
+  return 'followup';
+}
+let toastT;
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
+
+/* ---------- storage ---------- */
+const chains = {};
+function write(path, data, mode){
+  if (!db) { toast('Not saved: storage is not connected'); return; }
+  const ref = db.doc(path);
+  chains[path] = (chains[path] || Promise.resolve())
+    .then(() => mode === 'set' ? ref.set(data) : mode === 'del' ? ref.delete() : ref.update(data))
+    .catch(e => toast('Save failed: ' + (e && (e.message || e.code))));
+}
+function patchLead(id, patch, hist, opts = {}){
+  const l = S.leads.get(id); if (!l) return;
+  const p = {...patch};
+  if (hist) p.history = [...(l.history || []), {t: Date.now(), ...hist}].slice(-200);
+  S.leads.set(id, {...l, ...p});
+  write('leads/' + id, p);
+  if (!opts.quiet) render();
+}
+let cfgT;
+function saveCfg(){ clearTimeout(cfgT); cfgT = setTimeout(() => write('config/main', JSON.parse(JSON.stringify(S.cfg)), 'set'), 300); }
+
+/* ---------- Firebase: sign-in + storage (users/{uid}/leads, users/{uid}/config/main) ---------- */
+let fbUser = null;
+function fbConfig(){
+  if (window.LEAD_DESK_FIREBASE && window.LEAD_DESK_FIREBASE.apiKey) return window.LEAD_DESK_FIREBASE;
+  try { return JSON.parse(localStorage.getItem('fbConfig') || 'null'); } catch (e) { return null; }
+}
+function showAuth(mode, msg){
+  const a = $('#auth'); a.hidden = false;
+  if (mode === 'setup') {
+    a.innerHTML = `<div class="authbox"><h2>Lead<span>Desk</span></h2><p>Paste your Firebase web config to connect your database. You find it in Firebase → Project settings → Your apps → SDK setup and configuration → Config.</p>
+      <textarea class="input" id="fb_cfg" style="min-height:160px" placeholder="const firebaseConfig = { apiKey: ... }"></textarea>
+      <button class="btn btn-primary btn-big" data-act="saveFbCfg">Connect</button>${msg ? `<div class="banner">${esc(msg)}</div>` : ''}</div>`;
+    return;
+  }
+  a.innerHTML = `<div class="authbox"><h2>Lead<span>Desk</span></h2><p>Sign in to see your leads. Use the same account on your phone and your laptop.</p>
+    <button class="btn btn-primary btn-big" data-act="googleIn">Sign in with Google</button>
+    <div class="hint" style="text-align:center">or with email</div>
+    <input class="input" id="au_email" type="email" inputmode="email" placeholder="Email" autocomplete="email">
+    <input class="input" id="au_pass" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
+    <div class="actions"><button class="btn btn-ghost" data-act="emailIn">Sign in</button><button class="btn btn-ghost" data-act="emailUp">Create account</button></div>
+    <button class="linkbtn" data-act="resetPass">Forgot password?</button>
+    ${msg ? `<div class="banner">${esc(msg)}</div>` : ''}</div>`;
+}
+const hideAuth = () => { const a = $('#auth'); a.hidden = true; a.innerHTML = ''; };
+const authMsg = e => ({'auth/invalid-credential':'Wrong email or password.','auth/wrong-password':'Wrong email or password.','auth/user-not-found':'No account with this email – tap Create account.',
+  'auth/email-already-in-use':'This email already has an account – tap Sign in.','auth/weak-password':'Use at least 6 characters.','auth/invalid-email':'That email looks wrong.',
+  'auth/unauthorized-domain':'This web address is not allowed yet: add it in Firebase → Authentication → Settings → Authorized domains.',
+  'auth/popup-closed-by-user':'Sign-in was closed. Try again.','auth/network-request-failed':'No internet connection.'}[e && e.code] || (e && e.message) || 'Could not sign in.');
+function startApp(){
+  const cfg = fbConfig();
+  if (!cfg) { showAuth('setup'); return; }
+  try { firebase.initializeApp(cfg); } catch (e) { showAuth('setup', 'That config did not work: ' + e.message); return; }
+  const fs = firebase.firestore();
+  try { fs.settings({ignoreUndefinedProperties: true}); } catch (e) {}
+  fs.enablePersistence({synchronizeTabs: true}).catch(() => {});
+  firebase.auth().getRedirectResult().catch(e => showAuth('signin', authMsg(e)));
+  firebase.auth().onAuthStateChanged(u => {
+    if (!u) { fbUser = null; showAuth('signin'); return; }
+    fbUser = u; hideAuth(); connect(fs.collection('users').doc(u.uid));
+  });
+}
+let unsubs = [];
+function connect(root){
+  unsubs.forEach(f => f()); unsubs = [];
+  db = { collection: p => root.collection(p), doc: p => { const [c, id] = p.split('/'); return root.collection(c).doc(id); } };
+  S.dbOk = true; $('#sync').textContent = 'Connecting…';
+  unsubs.push(db.collection('leads').onSnapshot({includeMetadataChanges: true}, snap => {
+    const m = new Map(); snap.docs.forEach(d => { if (d.exists) m.set(d.id, {...d.data(), id: d.id}); });
+    S.leads = m; S.ready = true;
+    $('#sync').textContent = snap.metadata.hasPendingWrites ? 'Saving…' : snap.metadata.fromCache ? 'Offline – saved on this device' : 'Synced';
+    softRender();
+  }, e => { $('#sync').textContent = 'Sync error'; toast('Could not load leads: ' + e.message); }));
+  unsubs.push(db.doc('config/main').onSnapshot(s => { S.cfg = s.exists ? JSON.parse(JSON.stringify(s.data())) : {}; S.cfgLoaded = true; softRender(); }, () => {}));
+}
+
+/* ---------- render ---------- */
+function typingIn(el){ const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && el.contains(a); }
+function softRender(){ render(); }
+function render(){
+  if (!typingIn($('#view'))) renderView(); else if (S.tab === 'leads') renderLeadList();
+  if (!typingIn($('#focus'))) renderFocus();
+  if (S.sheet && S.sheet.type === 'lead' && !typingIn($('#sheet'))) renderSheet();
+}
+function setTab(t){ S.tab = t; document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t)); if (t === 'add') S.draft = {}; renderView(); window.scrollTo(0,0); }
+
+function row(l){
+  const lh = lastHist(l); const over = l.nextAt && l.nextAt < Date.now() && isOpen(l);
+  return `<button class="row" data-act="open" data-id="${l.id}">
+    <span class="av ${isHot(l) ? 'hot' : ''}">${esc(initials(l.name))}</span>
+    <span class="rmain"><span class="rname">${esc(l.flag || '')} ${esc(l.name || 'No name')} ${l.hot ? '<span class="flame">●</span>' : ''} ${l.example ? '<span class="pill ex">Example</span>' : ''}</span>
+    <span class="rsub"><span class="pill s-${l.stage}">${esc(STAGE[l.stage] || l.stage)}</span> ${isOpen(l) && winOpen(l) ? '<span class="pill s-meeting">Call now</span> ' : ''}${l.lastAt ? esc('Last: ' + lastContact(l) + (lh ? ' · ' + lh.txt : '')) : 'Not contacted yet'}</span></span>
+    <span class="rdue ${over ? 'over' : ''}">${l.nextAt ? (over ? 'Overdue<br>' : '') + esc(when(l.nextAt)) : ''}</span></button>`;
+}
+function section(cls, title, arr, emptyTxt, extra = ''){
+  if (!arr.length && !emptyTxt) return '';
+  return `<section><h2 class="sec ${cls}"><span class="dot"></span>${title} <small>${arr.length || ''}</small></h2>${extra}
+    ${arr.length ? `<div class="list">${arr.map(row).join('')}</div>` : `<div class="empty">${emptyTxt}</div>`}</section>`;
+}
+function buildQueue(){
+  const all = [...S.leads.values()], seen = new Set(), q = [];
+  const push = arr => arr.forEach(l => { if (!seen.has(l.id)) { seen.add(l.id); q.push(l.id); } });
+  push(all.filter(atRisk).sort(byNext));
+  push(all.filter(l => isDue(l) && isHot(l)).sort(byNext));
+  push(all.filter(isNew).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+  push(all.filter(isDue).sort(byNext));
+  return q;
+}
+function renderView(){
+  const v = $('#view');
+  if (S.tab === 'today') v.innerHTML = viewToday();
+  else if (S.tab === 'leads') { v.innerHTML = viewLeadsShell(); renderLeadList(); }
+  else if (S.tab === 'add') v.innerHTML = viewAdd();
+  else v.innerHTML = viewMsgs();
+}
+function viewToday(){
+  if (S.dbOk === false) return `<div class="banner">Your leads can't be saved here. Open this page at claude.ai while signed in to your account, so leads are stored and synced between your phone and computer.</div>`;
+  if (!S.ready) return `<div class="empty">Loading your leads…</div>`;
+  const all = [...S.leads.values()], n = Date.now();
+  const risk = all.filter(atRisk).sort(byNext);
+  const meets = all.filter(l => l.stage === 'meeting' && l.meetingAt && l.meetingAt > n - 3*H && l.meetingAt < n + 3*D).sort((a, b) => a.meetingAt - b.meetingAt);
+  const neu = all.filter(isNew).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const laterBack = all.filter(l => l.stage === 'later' && isDue(l)).sort(byNext);
+  const due = all.filter(l => isDue(l) && !atRisk(l) && !isNew(l) && l.stage !== 'later').sort(byNext);
+  const nowList = [...risk, ...due, ...neu].filter(l => winOpen(l) && isOpen(l));
+  const dh = dubaiHour();
+  const q = buildQueue(); const f = S.cfg.focus || {};
+  const d = new Date().toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'});
+  return `<section class="hero">
+    <div class="date">${esc(d)}</div>
+    <div class="stats">
+      <div class="stat hot"><b>${risk.length}</b><span>Hot at risk</span></div>
+      <div class="stat meet"><b>${meets.length}</b><span>Meetings</span></div>
+      <div class="stat"><b>${due.length}</b><span>Follow-ups</span></div>
+      <div class="stat"><b>${neu.length}</b><span>New</span></div>
+    </div>
+    <button class="btn btn-primary btn-big" data-act="startFocus" ${q.length ? '' : 'disabled'}>${q.length ? `Start calling · ${q.length} lead${q.length > 1 ? 's' : ''}` : 'All caught up for today'}</button>
+    <div class="focus-line">${f.project ? `This week's project: <b>${esc(f.project)}</b>${f.area ? ' in ' + esc(f.area) : ''}` : `Set this week's project in <b>Messages</b> so your WhatsApp texts are ready.`}</div>
+  </section>
+  ${section('meet', `Call now – in their time window (${fmtH(Math.floor(dh * 4) / 4)} Dubai)`, nowList, all.length ? 'Nobody on today\'s list is in their call window right now. The next windows: Gulf 11 AM & 4 PM, Europe 12 PM & 5 PM, UK 1 PM & 5 PM, USA 7 PM.' : '')}
+  ${section('hot', "Hot leads – don't lose them", risk, all.length ? 'No hot lead is waiting. Good work.' : '')}
+  ${section('meet', 'Meetings, next 3 days', meets.map(l => ({...l, nextAt: l.meetingAt})), '')}
+  ${section('due', 'Follow-ups due today', due, all.length ? 'No follow-ups left for today.' : '')}
+  ${section('new', 'New leads, not contacted', neu, '')}
+  ${section('due', 'Buy later – time to contact again', laterBack, '')}
+  ${all.length ? '' : `<div class="empty">No leads yet. Tap <b>Add lead</b> below to add your first one. It takes about 10 seconds.</div>`}`;
+}
+function viewLeadsShell(){
+  return `<div class="search"><input class="input" id="q" type="search" placeholder="Search name, phone, project…" value="${esc(S.q)}" autocomplete="off">
+    <div class="chips scroll" id="stageChips"></div><div class="chips scroll" id="countryChips"></div>
+    <div class="chips" id="sortChips"></div></div><div id="leadList" style="display:flex;flex-direction:column;gap:16px"></div>`;
+}
+function renderLeadList(){
+  const box = $('#leadList'); if (!box) return;
+  const all = [...S.leads.values()];
+  const cnt = k => all.filter(l => k === 'open' ? isOpen(l) : k === 'all' ? true : k === 'hotf' ? isHot(l) && isOpen(l) : l.stage === k).length;
+  const filters = [['open','Active'],['hotf','Hot'],...STAGES,['all','All']];
+  $('#stageChips').innerHTML = filters.map(([k, t]) => `<button class="chip ${S.stageF === k ? 'on' : ''}" data-act="stageF" data-k="${k}">${esc(t)}<small>${cnt(k)}</small></button>`).join('');
+  const q = S.q.trim().toLowerCase();
+  let list = all.filter(l => S.stageF === 'open' ? isOpen(l) : S.stageF === 'all' ? true : S.stageF === 'hotf' ? isHot(l) && isOpen(l) : l.stage === S.stageF);
+  if (q) list = list.filter(l => [l.name, l.phone, l.email, l.project, l.country, l.note].join(' ').toLowerCase().includes(q) || (digits(q) && digits(l.phone).includes(digits(q))));
+  const cc = {}; list.forEach(l => { const k = l.country || 'Other'; cc[k] = (cc[k] || 0) + 1; });
+  const flagOf = {}; all.forEach(l => { flagOf[l.country || 'Other'] = l.flag || '🌐'; });
+  $('#countryChips').innerHTML = `<button class="chip ${!S.countryF ? 'on' : ''}" data-act="countryF" data-k="">All countries</button>` + Object.keys(cc).sort((a, b) => cc[b] - cc[a]).map(k => `<button class="chip ${S.countryF === k ? 'on' : ''}" data-act="countryF" data-k="${esc(k)}">${esc(flagOf[k])} ${esc(k)}<small>${cc[k]}</small></button>`).join('');
+  $('#sortChips').innerHTML = `<span class="hint" style="align-self:center">Sort:</span>` + [['time','By call time'],['country','By country'],['hot','Hot first']].map(([k, t]) => `<button class="chip ${S.sortBy === k ? 'on' : ''}" data-act="sortBy" data-k="${k}">${t}</button>`).join('');
+  if (S.countryF) list = list.filter(l => (l.country || 'Other') === S.countryF);
+  const sortT = (a, b) => (winOpen(b) - winOpen(a)) || (callWindows(a)[0][0] - callWindows(b)[0][0]) || (isHot(b) - isHot(a)) || ((a.nextAt || 9e15) - (b.nextAt || 9e15));
+  if (!S.ready) { box.innerHTML = '<div class="empty">Loading your leads…</div>'; return; }
+  if (!list.length) { box.innerHTML = `<div class="empty">No leads match.</div>`; return; }
+  S.listIds = list.map(l => l.id);
+  const groups = new Map();
+  if (S.sortBy === 'country') { list.sort((a, b) => (a.country || 'Other').localeCompare(b.country || 'Other') || sortT(a, b)); list.forEach(l => { const k = (l.flag || '🌐') + ' ' + (l.country || 'Other') + ' · call ' + winText(l); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }); }
+  else if (S.sortBy === 'time') { list.sort(sortT); list.forEach(l => { const k = winOpen(l) ? 'Call now – in their window' : 'Window ' + winText(l) + ' Dubai'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }); }
+  else { list.sort((a, b) => (isHot(b) - isHot(a)) || ((a.nextAt || 9e15) - (b.nextAt || 9e15))); groups.set('', list); }
+  box.innerHTML = `<button class="btn btn-primary btn-big" data-act="startList">Start calling these ${list.length} lead${list.length > 1 ? 's' : ''}</button>` + [...groups].map(([k, arr]) => `<section>${k ? `<h2 class="sec"><span class="dot"></span>${esc(k)} <small>${arr.length}</small></h2>` : ''}<div class="list">${arr.map(row).join('')}</div></section>`).join('');
+}
+function chipGroup(group, opts, sel, act = 'chip', extra = ''){
+  return `<div class="chips">${opts.map(o => { const [v, t, cls] = Array.isArray(o) ? o : [o, o, '']; const on = Array.isArray(sel) ? sel.includes(v) : sel === v;
+    return `<button type="button" class="chip ${cls || ''} ${on ? 'on' : ''}" data-act="${act}" data-g="${group}" data-v="${esc(v)}" ${extra}>${esc(t)}</button>`; }).join('')}</div>`;
+}
+function viewAdd(){
+  const d = S.draft; const f = S.cfg.focus || {};
+  return `<div class="form card">
+    <h3>Paste anything</h3>
+    <p class="hint" style="margin:0">Paste a Bitrix card, a WhatsApp message, an email or your own notes – one lead or many. The app finds the phone, email, name, source, campaign and comments. If the number is already saved, the info is added to that lead instead of making a copy.</p>
+    <textarea class="input" id="paste_box" placeholder="Paste here…" style="min-height:110px">${esc(S.pasteText || '')}</textarea>
+    <div class="actions">
+      <button class="btn btn-primary" data-act="parsePaste">Sort it out</button>
+      ${S.canPhoto !== false ? `<label class="btn btn-ghost" for="photo_cam">${IC.cam}Take photo</label><label class="btn btn-ghost" for="photo_pick">${IC.img}Choose picture</label>` : ''}
+    </div>
+    <input type="file" id="photo_cam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="photo_pick" accept="image/*" hidden>
+    <div id="paste_res">${pasteResult()}</div>
+  </div>
+  <div class="form card">
+    <h3>Or type it in</h3>
+    <div class="field"><label for="f_phone">Phone with country code</label><input class="input" id="f_phone" type="tel" inputmode="tel" placeholder="+46 70 123 45 67" value="${esc(d.phone || '')}" autocomplete="off"><div class="det" id="f_det"></div></div>
+    <div class="field"><label for="f_name">Name</label><input class="input" id="f_name" placeholder="First and last name" value="${esc(d.name || '')}" autocomplete="off"></div>
+    <div class="field"><label for="f_email">Email (optional)</label><input class="input" id="f_email" type="email" inputmode="email" placeholder="name@example.com" value="${esc(d.email || '')}" autocomplete="off"></div>
+    <div class="field"><span class="lbl">Message language</span><div id="f_lang">${chipGroup('lang', LANGS, d.lang || 'en', 'dchip')}</div></div>
+    <div class="field"><span class="lbl">Source</span>${chipGroup('source', OPT.source, d.source, 'dchip')}</div>
+    <div class="field"><span class="lbl">Budget</span>${chipGroup('budget', OPT.budget, d.budget, 'dchip')}</div>
+    <div class="field"><span class="lbl">Goal</span>${chipGroup('purpose', OPT.purpose, d.purpose, 'dchip')}</div>
+    <div class="field"><span class="lbl">Unit</span>${chipGroup('ptype', OPT.ptype, d.ptype, 'dchip')}</div>
+    <div class="field"><span class="lbl">When to buy</span>${chipGroup('timeline', OPT.timeline, d.timeline, 'dchip')}</div>
+    <div class="field"><label for="f_project">Interested in (project or area)</label><input class="input" id="f_project" placeholder="${esc(f.project || 'e.g. Dubai Hills, JVC')}" value="${esc(d.project || '')}" autocomplete="off"></div>
+    <div class="field"><label for="f_note">Note (optional)</label><textarea class="input" id="f_note" placeholder="Anything you want to remember">${esc(d.note || '')}</textarea></div>
+    <div id="f_dup"></div>
+    <div class="actions"><button class="btn btn-ghost" data-act="saveLead" data-then="stay">Save, add another</button><button class="btn btn-primary" data-act="saveLead" data-then="open">Save &amp; contact now</button></div>
+  </div>`;
+}
+function viewMsgs(){
+  const f = S.cfg.focus || {}; const L = S.tplLang;
+  return `<div class="card form">
+    <h3>This week's focus</h3>
+    <p class="hint" style="margin:0">Your WhatsApp messages fill these in for you. Change them when you switch project.</p>
+    <div class="field"><label for="c_me">Your name in messages</label><input class="input" id="c_me" data-cfg="myName" value="${esc(S.cfg.myName || '')}" placeholder="e.g. Rabih"></div>
+    <div class="field"><label for="c_project">Project</label><input class="input" id="c_project" data-cfg="focus.project" value="${esc(f.project || '')}" placeholder="e.g. Emaar Creek Beach"></div>
+    <div class="row2">
+      <div class="field"><label for="c_area">Area</label><input class="input" id="c_area" data-cfg="focus.area" value="${esc(f.area || '')}" placeholder="e.g. Dubai Creek Harbour"></div>
+      <div class="field"><label for="c_price">Starting price</label><input class="input" id="c_price" data-cfg="focus.price" value="${esc(f.price || '')}" placeholder="e.g. AED 1.6M"></div>
+      <div class="field"><label for="c_plan">Payment plan</label><input class="input" id="c_plan" data-cfg="focus.plan" value="${esc(f.plan || '')}" placeholder="e.g. 60/40"></div>
+      <div class="field"><label for="c_handover">Handover</label><input class="input" id="c_handover" data-cfg="focus.handover" value="${esc(f.handover || '')}" placeholder="e.g. Q4 2028"></div>
+    </div>
+  </div>
+  <div class="card form">
+    <h3>Account and backup</h3>
+    <p class="hint" style="margin:0">Signed in as <b>${esc(fbUser ? (fbUser.email || fbUser.displayName || '') : '')}</b>. Your leads are stored in your own Firebase database and saved on this device for offline use.</p>
+    <div class="actions"><button class="btn btn-ghost" data-act="exportAll">Download backup</button><label class="btn btn-ghost" for="imp_file">Import backup file</label></div>
+    <input type="file" id="imp_file" accept=".json,application/json,text/plain" hidden>
+    <div class="field"><label for="imp_text">Or paste leads copied from the old Lead Desk</label><textarea class="input" id="imp_text" placeholder="Paste here, then tap Import"></textarea></div>
+    <button class="btn btn-primary" data-act="importText">Import pasted leads</button>
+    <div id="imp_res">${S.impMsg ? `<div class="meetb">${esc(S.impMsg)}</div>` : ''}</div>
+    <button class="btn btn-ghost" data-act="signOut">Sign out</button>
+  </div>
+  <div class="card form">
+    <h3>Open WhatsApp in</h3>
+    <p class="hint" style="margin:0">Saved for this device only. On a phone, "WhatsApp app" opens the app straight away. If nothing happens when you tap a WhatsApp button, switch to "WhatsApp Web link".</p>
+    ${chipGroup('waMode', [['app','WhatsApp app'],['web','WhatsApp Web link']], waMode(), 'setWaMode')}
+  </div>
+  <div class="card form">
+    <h3>Message templates</h3>
+    <p class="hint" style="margin:0">The app picks the language from the lead's country. Words in {curly brackets} are filled in automatically: {name} {me} {project} {area} {price} {plan} {handover} {meeting}.</p>
+    ${chipGroup('tplLang', LANGS, L, 'tplLang')}
+    ${TPL_META.map(([k, t]) => { const custom = S.cfg.templates && S.cfg.templates[L] && S.cfg.templates[L][k];
+      return `<div class="field"><label for="t_${L}_${k}">${esc(t)}</label><textarea class="input" id="t_${L}_${k}" data-tpl="${k}" dir="${L === 'ar' ? 'rtl' : 'ltr'}">${esc(getTpl(L, k))}</textarea>${custom ? `<button class="btn btn-ghost" style="min-height:34px;padding:6px 12px;align-self:flex-start;font-size:13px" data-act="resetTpl" data-k="${k}">Reset to default</button>` : ''}</div>`; }).join('')}
+  </div>`;
+}
+
+/* ---------- lead briefing & actions ---------- */
+function briefing(l){
+  const facts = [l.budget, l.purpose, l.ptype, l.timeline, l.project && 'Wants: ' + l.project, l.source && 'From ' + l.source].filter(Boolean);
+  const lh = lastHist(l); const n = Date.now();
+  const recent = (l.history || []).filter(h => h.k !== 'created').slice(-3).reverse();
+  return `<div class="brief">
+    <div class="brief-label">Before you contact</div>
+    ${atRisk(l) ? `<div class="risk">Hot lead – ${l.lastAt ? 'last contact ' + esc(ago(l.lastAt)) : 'not contacted yet'}. Don't let it go cold.</div>` : ''}
+    ${l.stage === 'meeting' && l.meetingAt ? `<div class="meetb">Meeting: ${esc(when(l.meetingAt))}${l.meetingKind ? ' · ' + esc(l.meetingKind) : ''}</div>` : ''}
+    ${l.todo ? `<div class="todo">You promised: ${esc(l.todo)}</div>` : ''}
+    ${facts.length ? `<div class="facts">${facts.map(x => `<span class="fact">${esc(x)}</span>`).join('')}</div>` : '<div class="hint">No profile yet. Ask about budget, goal and timing.</div>'}
+    <div class="bline"><b>Created:</b> ${esc(new Date(l.crmCreated || l.createdAt).toLocaleDateString([], {weekday:'short', day:'numeric', month:'short', year:'numeric'}))}${l.crmCreated ? ' (in Bitrix)' : ''}</div>
+    <div class="bline"><b>Last contacted:</b> ${esc(lastContact(l))}${l.lastAt ? ' (' + esc(ago(l.lastAt)) + ')' : ''}${lh ? ' – ' + esc(lh.txt) : ''}</div>
+    ${l.said && l.said.length ? `<div class="bline"><b>They said:</b> ${esc(l.said.join(', '))}</div>` : ''}
+    ${(l.noAnswer || 0) > 0 ? `<div class="bline"><b>${l.noAnswer} missed call${l.noAnswer > 1 ? 's' : ''} in a row.</b> ${l.noAnswer >= 2 ? 'Send a WhatsApp message.' : ''}</div>` : ''}
+    ${contactWay(l) !== 'any' ? `<div class="risk">Contact by ${esc(WAY[contactWay(l)])}</div>` : ''}
+    ${l.rule && !isWayRule(l.rule) ? `<div class="risk">${esc(l.rule)}</div>` : ''}
+    <div class="bline"><b>Best time to call:</b> ${esc(winText(l))} Dubai · ${winOpen(l) ? '<b style="color:var(--good)">open now</b>' : esc(winNext(l))}</div>
+    ${l.note ? `<div class="bline"><b>Note:</b> ${esc(l.note)}</div>` : ''}
+    ${recent.length > 1 ? `<div class="hint">${recent.slice(1).map(h => esc(ago(h.t) + ': ' + h.txt)).join('<br>')}</div>` : ''}
+    ${l.crm ? `<details class="crm"><summary>Bitrix notes${l.leadNo ? ' · Lead #' + esc(l.leadNo) : ''}${l.campaign ? ' · ' + esc(l.campaign) : ''}</summary><div class="crmtext">${esc(l.crm)}</div></details>` : ''}
+    <div class="bline"><b>Next follow-up:</b> ${l.nextAt ? `<span style="color:${l.nextAt < n ? 'var(--hot)' : 'inherit'}">${esc(when(l.nextAt))}</span>` : 'Not set'}</div>
+  </div>`;
+}
+const IC = {
+  call: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2"/></svg>',
+  wa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3.5 20.5 5 16a8.5 8.5 0 1 1 3.2 3.2z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></svg>',
+  msg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5" stroke-linecap="round"/></svg>',
+  cam: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" width="18" height="18"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  img: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" width="18" height="18"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>',
+};
+function contactBar(l){
+  const d = digits(l.phone), way = contactWay(l);
+  const canCall = way === 'any' || way === 'call', canWa = way === 'any' || way === 'wa', canSms = way !== 'wa';
+  const off = (ic, t) => `<span class="cbtn off">${ic}${t}<small>${esc(WAY[way])}</small></span>`;
+  return `<div class="contact">
+    ${canCall ? telLink(d, 'cbtn call', `${IC.call}Call<small>${IS_MOBILE ? 'phone' : 'Phone Link'}</small>`) : off(IC.call, 'No calls')}
+    ${canWa ? `<a class="cbtn wa" href="${waLink(l)}" ${waTarget()} data-act="wacall">${IC.wa}WhatsApp call<small>VPN on</small></a>` : off(IC.wa, 'No WhatsApp')}
+    ${canWa ? `<button class="cbtn msg" data-act="waSheet" data-ch="wa" data-id="${l.id}">${IC.msg}Message<small>ready texts</small></button>` : off(IC.msg, 'No WhatsApp')}
+  </div>
+  <div class="contact2">
+    ${canSms ? `<button class="cbtn sm sms" data-act="waSheet" data-ch="sms" data-id="${l.id}">${IC.msg}SMS</button>` : `<span class="cbtn sm off">${IC.msg}No SMS</span>`}
+    ${l.email ? `<button class="cbtn sm mail" data-act="waSheet" data-ch="email" data-id="${l.id}">${IC.mail}Email</button>`
+      : `<button class="cbtn sm mail none" data-act="addEmail" data-id="${l.id}">${IC.mail}Add email</button>`}
+  </div>
+  <div class="num">+${esc(d)} <button data-act="copy" data-v="+${esc(d)}">Copy number</button></div>
+  ${l.email ? `<div class="num">${esc(l.email)} <button data-act="copy" data-v="${esc(l.email)}">Copy email</button></div>` : ''}
+  <div class="movebar"><span class="lbl">Contact by</span>${WAYS.map(([k, t]) => `<button class="chip ${k === 'any' ? '' : 'wa'} ${way === k ? 'on' : ''}" data-act="setWay" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>`;
+}
+function outcomeBar(l){
+  return `<div class="lbl">How did it go?</div><div class="outcomes">
+    <button class="obtn na" data-act="noans" data-id="${l.id}">No answer</button>
+    <a class="obtn nam" href="${msgLink('wa', l, 'noanswer')}" ${waTarget()} data-act="noansMsg" data-ch="wa" data-id="${l.id}">No answer + WhatsApp</a>
+    <a class="obtn ok" href="${msgLink('sms', l, 'noanswer')}" ${EXT} data-act="noansMsg" data-ch="sms" data-id="${l.id}">No answer + SMS</a>
+    ${l.email ? `<a class="obtn" href="${msgLink('email', l, 'noanswer')}" ${EXT} data-act="noansMsg" data-ch="email" data-id="${l.id}">No answer + email</a>`
+      : `<button class="obtn lost" data-act="addEmail" data-id="${l.id}">No email saved</button>`}
+    <button class="obtn ok" data-act="talkSheet" data-id="${l.id}">We talked</button>
+    <button class="obtn mt" data-act="meetSheet" data-id="${l.id}">Book meeting</button>
+    <a class="obtn na" href="${msgLink('wa', l, 'declined')}" ${waTarget()} data-act="declined" data-id="${l.id}">Declined call + text</a>
+    <button class="obtn lost" data-act="badnum" data-id="${l.id}">Number not working</button>
+    <button class="obtn hotb ${l.hot ? 'on' : ''}" data-act="hot" data-id="${l.id}">${l.hot ? 'HOT ✓' : 'Mark HOT'}</button>
+    <button class="obtn lost" data-act="lost" data-id="${l.id}">Not interested</button>
+  </div>
+  <div class="lbl">Move to</div>
+  <div class="movebar">${[['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
+  <div class="updbox">
+    <div class="lbl">Add update</div>
+    <div class="chips">${QUICK_UPD.map(q => `<button class="chip" data-act="quickUpd" data-id="${l.id}" data-v="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+    <textarea class="input" id="upd_${l.id}" placeholder="Write a comment (optional) – e.g. what they replied"></textarea>
+    <button class="btn btn-primary" data-act="saveUpd" data-id="${l.id}">Save update</button>
+    <div class="hint">Tap a quick update to save it at once. Anything you typed in the box is saved with it.</div>
+  </div>`;
+}
+
+/* ---------- focus (calling) mode ---------- */
+function startFocus(){ const q = buildQueue(); if (!q.length) return; S.focus = {q, i: 0, done: 0}; renderFocus(); }
+function curFocus(){ if (!S.focus) return null; while (S.focus.i < S.focus.q.length && !S.leads.get(S.focus.q[S.focus.i])) S.focus.i++; return S.leads.get(S.focus.q[S.focus.i]) || null; }
+function advance(msg){ if (!S.focus) { if (msg) toast(msg); return; } S.focus.i++; S.focus.done++; closeSheet(); renderFocus(); $('#focus').scrollTo(0,0); toast((msg || 'Saved') + (curFocus() ? ' · next lead' : '')); }
+function renderFocus(){
+  const el = $('#focus');
+  if (!S.focus) { el.hidden = true; el.innerHTML = ''; document.body.style.overflow = ''; return; }
+  el.hidden = false; document.body.style.overflow = 'hidden';
+  const l = curFocus(), tot = S.focus.q.length;
+  if (!l) { el.innerHTML = `<div class="fbar"><div class="wrap"><span class="prog">Done</span><button data-act="exitFocus">Close</button></div></div>
+    <div class="wrap fbody"><h2 class="fname">All caught up.</h2><p>You worked through ${S.focus.done} lead${S.focus.done === 1 ? '' : 's'}. Every follow-up is scheduled.</p><button class="btn btn-primary btn-big" data-act="exitFocus">Back to Today</button></div>`; return; }
+  el.innerHTML = `<div class="fbar"><div class="wrap"><button data-act="exitFocus">Exit</button><span class="prog">${S.focus.i + 1} of ${tot}<small>${atRisk(l) ? 'Hot lead' : isNew(l) ? 'New lead' : 'Follow-up'}</small></span><button data-act="skip">Skip</button></div></div>
+    <div class="wrap fbody">
+      <div><h2 class="fname">${esc(l.name || 'No name')} ${l.example ? '<span class="pill ex">Example</span>' : ''}</h2>
+      <div class="fsub"><span>${esc(l.flag || '')} ${esc(l.country || '')}</span><span class="pill s-${l.stage}">${esc(STAGE[l.stage])}</span><span>Created ${esc(new Date(l.crmCreated || l.createdAt).toLocaleDateString([], {day:'numeric', month:'short', year:'numeric'}))}</span><button class="chip" style="padding:4px 10px;font-size:13px" data-act="open" data-id="${l.id}">Full profile</button></div></div>
+      ${briefing(l)}${contactBar(l)}${outcomeBar(l)}
+    </div>`;
+}
+
+/* ---------- sheets ---------- */
+function openSheet(type, id, extra = {}){ S.sheet = {type, id, ...extra}; S.form = {}; S.confirmDel = false; if (type === 'lead') S.editOpen = false; renderSheet(); $('#sheetWrap').hidden = false; $('#sheet').scrollTo(0,0); }
+function closeSheet(){ S.sheet = null; $('#sheetWrap').hidden = true; $('#sheet').innerHTML = ''; }
+function head(title, sub){ return `<div class="grab"></div><div class="shead"><div style="flex:1;min-width:0"><h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ''}</div><button class="x" data-act="closeSheet" aria-label="Close">✕</button></div>`; }
+function renderSheet(){
+  const s = S.sheet; if (!s) return; const l = S.leads.get(s.id); const box = $('#sheet');
+  if (!l) { closeSheet(); return; }
+  let h = '';
+  if (s.type === 'lead') {
+    h = head(`${esc(l.name || 'No name')} ${l.example ? '<span class="pill ex">Example</span>' : ''}`, `${esc(l.flag || '')} ${esc(l.country || '')} · <span class="pill s-${l.stage}">${esc(STAGE[l.stage])}</span> · created ${esc(new Date(l.crmCreated || l.createdAt).toLocaleDateString([], {day:'numeric', month:'short', year:'numeric'}))}`)
+      + briefing(l) + contactBar(l) + outcomeBar(l)
+      + `<details class="edit" id="editBox" ${S.editOpen ? 'open' : ''}><summary>Profile &amp; stage</summary><div class="inner">
+        <div class="field"><span class="lbl">Stage</span>${chipGroup('stage', STAGES, l.stage, 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><label for="e_name">Name</label><input class="input" id="e_name" data-edit="name" data-id="${l.id}" value="${esc(l.name || '')}"></div>
+        <div class="field"><label for="e_phone">Phone</label><input class="input" id="e_phone" type="tel" data-edit="phone" data-id="${l.id}" value="${esc(l.phone || '')}"></div>
+        <div class="field"><label for="e_email">Email</label><input class="input" id="e_email" type="email" inputmode="email" data-edit="email" data-id="${l.id}" value="${esc(l.email || '')}" placeholder="name@example.com"></div>
+        <div class="field"><span class="lbl">Message language</span>${chipGroup('lang', LANGS, l.lang || 'en', 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><span class="lbl">Budget</span>${chipGroup('budget', OPT.budget, l.budget, 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><span class="lbl">Goal</span>${chipGroup('purpose', OPT.purpose, l.purpose, 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><span class="lbl">Unit</span>${chipGroup('ptype', OPT.ptype, l.ptype, 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><span class="lbl">When to buy</span>${chipGroup('timeline', OPT.timeline, l.timeline, 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><span class="lbl">Source</span>${chipGroup('source', OPT.source, l.source, 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><label for="e_project">Interested in</label><input class="input" id="e_project" data-edit="project" data-id="${l.id}" value="${esc(l.project || '')}"></div>
+        <div class="field"><label for="e_todo">Promised next step</label><input class="input" id="e_todo" data-edit="todo" data-id="${l.id}" value="${esc(l.todo || '')}" placeholder="e.g. Send brochure"></div>
+        <div class="field"><label for="e_note">Note</label><textarea class="input" id="e_note" data-edit="note" data-id="${l.id}">${esc(l.note || '')}</textarea></div>
+        <div class="field"><span class="lbl">Next follow-up</span>${chipGroup('next', NEXT.map(n => [n[0], n[1]]), null, 'setNext', `data-id="${l.id}"`)}</div>
+        ${S.confirmDel ? `<div class="confirm-row"><b>Delete this lead for good?</b><button class="btn btn-danger" data-act="delLead" data-id="${l.id}">Yes, delete</button><button class="btn btn-ghost" data-act="cancelDel">Keep</button></div>`
+          : `<button class="btn btn-danger" data-act="askDel">Delete lead</button>`}
+      </div></details>
+      <div class="card"><h3>History</h3><div class="timeline">${(l.history || []).slice().reverse().map(x => `<div class="tl"><time>${esc(when(x.t))}</time><div>${esc(x.txt)}</div></div>`).join('') || '<div class="hint">Nothing yet.</div>'}</div></div>`;
+  } else if (s.type === 'wa') {
+    const ch = s.ch || 'wa'; const L = s.lang || l.lang || 'en'; const sug = suggestTpl(l); const ll = {...l, lang: L};
+    const order = [sug, ...TPL_META.map(t => t[0]).filter(k => k !== sug)];
+    const tgt = ch === 'wa' ? waTarget() : '';
+    const appName = ch === 'wa' ? 'WhatsApp' : ch === 'sms' ? 'your SMS app' : 'your email app';
+    h = head('Send a message', `To ${esc(l.name)} · tap a message to open ${appName} with it ready to send`)
+      + chipGroup('ch', [['wa','WhatsApp'],['sms','SMS'],['email','Email']], ch, 'msgCh')
+      + chipGroup('waLang', LANGS, L, 'waLang');
+    if (ch === 'email' && !l.email) {
+      h += `<div class="card"><div class="field"><label for="e_email2">No email saved for ${esc(l.name)}. Add it here:</label><input class="input" id="e_email2" type="email" inputmode="email" data-edit="email" data-id="${l.id}" placeholder="name@example.com" autocomplete="off"></div><button class="btn btn-primary" data-act="noop">Save email</button></div>`;
+    } else {
+      h += order.map(k => { const txt = tplText(L, k, ll); const subj = ch === 'email' ? fill(DEF_SUBJ[L][k], ll) : '';
+          return `<div class="tplwrap"><a class="tpl ${k === sug ? 'sug' : ''}" href="${esc(msgLink(ch, ll, k))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="${k}" dir="${L === 'ar' ? 'rtl' : 'ltr'}"><b>${esc(TPL_LABEL[k])}</b><p>${subj ? '<strong>' + esc(subj) + '</strong><br>' : ''}${esc(txt)}</p></a>
+          <button class="copyb" data-act="copyTpl" data-v="${esc(txt)}">Copy text</button></div>`; }).join('')
+        + `<a class="btn btn-ghost" href="${esc(msgLink(ch, l, 'own'))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="own">Write my own message</a>`;
+      if (ch !== 'wa') h += `<p class="hint" style="margin:0">If nothing opens when you tap, use Copy text and paste the message into your ${ch === 'sms' ? 'Messages' : 'email'} app.</p>`;
+    }
+  } else if (s.type === 'talk') {
+    const F = S.form; F.temp = F.temp || (l.hot ? 'Hot' : 'Warm'); if (!F.nextPicked) F.next = F.temp === 'Hot' ? '1' : F.temp === 'Cold' ? '14' : '3';
+    h = head('We talked', esc(l.name) + ' · tap what fits, no typing needed')
+      + `<div class="field"><span class="lbl">What did they say?</span>${chipGroup('said', SAID, F.said || [], 'chip', 'data-multi="1"')}</div>
+      <div class="field"><span class="lbl">How interested?</span>${chipGroup('temp', [['Hot','Hot','t-hot'],['Warm','Warm',''],['Cold','Cold','t-cold']], F.temp)}</div>
+      <div class="field"><span class="lbl">Follow up</span>${chipGroup('next', NEXT.map(n => [n[0], n[1]]), F.next)}</div>
+      <div class="field"><label for="talk_note">Note (optional)</label><textarea class="input" id="talk_note" placeholder="Only if you want to add something"></textarea></div>
+      <button class="btn btn-primary btn-big" data-act="saveTalk" data-id="${l.id}">${S.focus ? 'Save & next lead' : 'Save'}</button>`;
+  } else if (s.type === 'meet') {
+    if (s.saved) {
+      const ms = l.meetingAt, end = ms + H; const fmt = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+      const calAdd = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('Meeting: ' + l.name + (l.meetingKind ? ' (' + l.meetingKind + ')' : ''))}&dates=${fmt(ms)}/${fmt(end)}&details=${encodeURIComponent('+' + digits(l.phone) + (l.project ? '\n' + l.project : '') + (l.budget ? '\n' + l.budget : ''))}`;
+      const L = l.lang || 'en'; const txt = tplText(L, 'meeting_confirm', l);
+      h = head('Meeting booked', `${esc(l.name)} · ${esc(when(ms))}${l.meetingKind ? ' · ' + esc(l.meetingKind) : ''}`)
+        + (s.inCal ? `<div class="meetb">Added to your Google Calendar.${s.invited ? ` Google emailed the invitation to ${esc(s.invited)}.` : ''}</div>` : '')
+        + (l.meetLink ? `<div class="num" style="justify-content:flex-start;flex-wrap:wrap"><b style="color:var(--ink)">Meet link:</b> ${esc(l.meetLink)} <button data-act="copy" data-v="${esc(l.meetLink)}">Copy link</button></div>` : '')
+        + (s.inCal && l.meetingKind === 'Video call' && !l.meetLink ? `<div class="banner">The event was created, but no Google Meet link came back. Open the event in Google Calendar to get the link.</div>` : '')
+        + `<a class="tpl sug" href="${waLink(l, txt)}" ${waTarget()} data-act="waConfirm" data-ch="wa" data-id="${l.id}" dir="${L === 'ar' ? 'rtl' : 'ltr'}"><b>Send ${l.meetLink ? 'link' : 'confirmation'} on WhatsApp</b><p>${esc(txt)}</p></a>`
+        + (l.email ? `<a class="btn btn-ghost" href="${esc(msgLink('email', l, 'meeting_confirm'))}" ${EXT} data-act="waConfirm" data-ch="email" data-id="${l.id}">Send ${l.meetLink ? 'link' : 'confirmation'} by email</a>` : '')
+        + (s.calLink ? `<a class="btn btn-ghost" href="${esc(s.calLink)}" target="_blank" rel="noopener">Open in Google Calendar</a>` : s.inCal ? '' : `<a class="btn btn-ghost" href="${calAdd}" target="_blank" rel="noopener">Add to Google Calendar</a>`)
+        + `<button class="btn btn-primary btn-big" data-act="${S.focus ? 'nextAfterMeet' : 'closeSheet'}">${S.focus ? 'Next lead' : 'Done'}</button>`;
+    } else {
+      const F = S.form; const d = new Date(at10(1) + H); if (!F.dt) F.dt = toLocalInput(d.getTime());
+      h = head('Book meeting', esc(l.name))
+        + `<div class="field"><span class="lbl">Quick pick</span>${chipGroup('quick', [['t18','Today 18:00'],['m11','Tomorrow 11:00'],['m16','Tomorrow 16:00'],['d2','In 2 days 11:00']], F.quick, 'meetQuick')}</div>
+        <div class="field"><label for="meet_dt">Date and time (your time)</label><input class="input" id="meet_dt" type="datetime-local" value="${F.dt}"></div>
+        <div class="field"><span class="lbl">Type</span>${chipGroup('kind', ['Video call','Office','Viewing','Phone call'], F.kind || 'Video call')}</div>
+        <div class="field"><label for="meet_email">Client email for the calendar invite</label><input class="input" id="meet_email" type="email" inputmode="email" value="${esc(F.email ?? l.email ?? '')}" placeholder="Optional – leave empty to send by WhatsApp only" autocomplete="off"></div>
+        <div class="field"><label for="meet_link">Meeting link (Google Meet / Zoom)</label><input class="input" id="meet_link" type="url" value="${esc(F.link ?? l.meetLink ?? '')}" placeholder="Optional – paste the link" autocomplete="off">
+          <a class="linkbtn" href="https://meet.google.com/new" target="_blank" rel="noopener">Create a new Google Meet link</a></div>
+        ${s.err ? `<div class="banner">${s.err}</div>` : ''}
+        ${S.mcpOk !== false ? `<button class="btn btn-primary btn-big" data-act="bookCal" data-id="${l.id}" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Booking in your calendar…' : 'Book in Google Calendar'}</button>
+        <div class="hint">Creates the event in your Google Calendar. A video call gets a Google Meet link. With an email, Google sends the client the invitation.</div>` : ''}
+        <button class="btn ${S.mcpOk !== false ? 'btn-ghost' : 'btn-primary btn-big'}" data-act="saveMeet" data-id="${l.id}" ${s.busy ? 'disabled' : ''}>Save meeting</button>`;
+    }
+  }
+  box.innerHTML = `<div class="wrap">${h}</div>`;
+}
+function toLocalInput(t){ const d = new Date(t); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+
+/* ---------- outcome logic ---------- */
+function doNoAnswer(id, ch){
+  const l = S.leads.get(id); if (!l) return;
+  const n = (l.noAnswer || 0) + 1;
+  const stage = ['new','noanswer'].includes(l.stage) ? 'noanswer' : l.stage;
+  patchLead(id, {noAnswer: n, lastOutcome: 'noanswer', lastAt: Date.now(), nextAt: nextWindowAt(l), stage}, {k:'noanswer', txt: `No answer (${n}x)` + (ch ? ` + ${CH[ch]} sent` : '')}, {quiet: true});
+}
+function doDeclined(id){
+  const l = S.leads.get(id); if (!l) return;
+  const n = (l.declined || 0) + 1;
+  patchLead(id, {declined: n, lastOutcome: 'declined', lastAt: Date.now(), nextAt: nextWindowAt(l), stage: ['new','noanswer'].includes(l.stage) ? 'noanswer' : l.stage},
+    {k:'declined', txt: `Declined the call (${n}x) + WhatsApp sent`}, {quiet: true});
+}
+function doBadNumber(id){
+  const l = S.leads.get(id); if (!l) return;
+  const n = (l.badNumber || 0) + 1;
+  const p = {badNumber: n, lastOutcome: 'badnum', lastAt: Date.now(), rule: 'Number not working (' + n + 'x) – try WhatsApp' + (l.email ? ' or email' : '') + ', or check the number in Bitrix',
+    nextAt: nextWindowAt(l), stage: ['new','noanswer','talking'].includes(l.stage) ? 'noanswer' : l.stage};
+  if (n >= 3) { p.stage = 'lost'; p.hot = false; p.nextAt = null; }
+  patchLead(id, p, {k:'badnum', txt: 'Number not working (' + n + 'x)' + (n >= 3 ? ' – moved to Lost' : '')}, {quiet: true});
+}
+function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(), nextAt: at10(90), noAnswer: 0}, {k:'stage', txt:'Not interested – re-engage in 3 months'}, {quiet: true}); }
+
+/* ---------- events ---------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act]'); if (!t) return;
+  const act = t.dataset.act, id = t.dataset.id;
+  const later = fn => setTimeout(fn, 60); // let link navigation happen before re-render
+  switch (act) {
+    case 'tab': setTab(t.dataset.tab); break;
+    case 'open': openSheet('lead', id); break;
+    case 'closeSheet': closeSheet(); break;
+    case 'startFocus': startFocus(); break;
+    case 'startList': if (S.listIds && S.listIds.length) { S.focus = {q: [...S.listIds], i: 0, done: 0}; renderFocus(); } break;
+    case 'exitFocus': S.focus = null; closeSheet(); render(); break;
+    case 'skip': S.focus.i++; renderFocus(); $('#focus').scrollTo(0,0); break;
+    case 'stageF': S.stageF = t.dataset.k; renderLeadList(); break;
+    case 'countryF': S.countryF = t.dataset.k; renderLeadList(); break;
+    case 'sortBy': S.sortBy = t.dataset.k; renderLeadList(); break;
+    case 'dial': { let copied = false; try { navigator.clipboard.writeText(t.dataset.v).then(() => {}, () => {}); copied = true; } catch (_) {}
+      toast((IS_MOBILE ? 'Calling…' : 'Opening Phone Link…') + ' – then tap how it went'); break; }
+    case 'wacall': toast('Turn on your VPN, then tap the call icon in WhatsApp'); break;
+    case 'copy': try { navigator.clipboard.writeText(t.dataset.v).then(() => toast('Number copied'), () => toast(t.dataset.v)); } catch (_) { toast(t.dataset.v); } break;
+    case 'waSheet': openSheet('wa', id, {ch: t.dataset.ch || 'wa'}); break;
+    case 'waLang': S.sheet.lang = t.dataset.v; renderSheet(); break;
+    case 'msgCh': S.sheet.ch = t.dataset.v; renderSheet(); break;
+    case 'addEmail': openSheet('wa', id, {ch: 'email'}); setTimeout(() => { const i = $('#e_email2'); if (i) i.focus(); }, 50); break;
+    case 'noop': break;
+    case 'copyTpl': try { navigator.clipboard.writeText(t.dataset.v).then(() => toast('Message copied'), () => toast('Copy not allowed here – press and hold the text to copy')); } catch (_) { toast('Copy not allowed here – press and hold the text to copy'); } break;
+    case 'noans': doNoAnswer(id, null); S.focus ? advance('No answer logged') : (toast('No answer logged · follow-up set'), render()); break;
+    case 'noansMsg': { const ch = t.dataset.ch || 'wa'; doNoAnswer(id, ch); later(() => S.focus ? advance(`No answer + ${CH[ch]} logged`) : (toast('Logged · follow-up set'), render())); break; }
+    case 'declined': doDeclined(id); later(() => S.focus ? advance('Declined call logged') : (toast('Declined logged · next try ' + when(S.leads.get(id).nextAt)), render())); break;
+    case 'badnum': doBadNumber(id); S.focus ? advance('Number not working logged') : (toast(S.leads.get(id).stage === 'lost' ? 'Number failed 3 times – moved to Lost' : 'Logged · try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')), render()); break;
+    case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k; if (l.stage === k) break;
+      const p = {stage: k};
+      if (k === 'pool' || k === 'workshop') { p.hot = false; p.nextAt = null; }
+      if (k === 'later') { p.hot = false; p.nextAt = at10(30); }
+      if (k === 'noanswer') p.nextAt = nextWindowAt(l);
+      if (k === 'talking' && (!l.nextAt || l.nextAt < Date.now())) p.nextAt = at10(1);
+      patchLead(id, p, {k:'stage', txt:'Moved to ' + STAGE[k]}, {quiet: true});
+      if (S.focus && (k === 'pool' || k === 'later' || k === 'workshop')) advance('Moved to ' + STAGE[k]);
+      else { toast('Moved to ' + STAGE[k] + (p.nextAt ? ' · next ' + when(p.nextAt) : '')); render(); }
+      break; }
+    case 'setWay': { const l = S.leads.get(id), k = t.dataset.k; if (contactWay(l) === k) break;
+      const p = {contactWay: k}; if (isWayRule(l.rule)) p.rule = '';
+      patchLead(id, p, {k:'note', txt:'Contact by: ' + WAY[k]}); toast('Contact by ' + WAY[k]); break; }
+    case 'quickUpd': case 'saveUpd': { const box = document.getElementById('upd_' + id); const typed = (box && box.value || '').trim();
+      const quick = act === 'quickUpd' ? t.dataset.v : '';
+      if (!quick && !typed) { toast('Write a comment or tap a quick update'); if (box) box.focus(); break; }
+      const txt = quick ? quick + (typed ? ' – ' + typed : '') : typed;
+      const kind = /whatsapp/i.test(quick) ? 'wa' : /email/i.test(quick) ? 'email' : 'comment';
+      if (box) box.value = '';
+      patchLead(id, {lastAt: Date.now()}, {k: kind, txt}); toast('Update saved ' + when(Date.now()));
+      break; }
+    case 'lost': doLost(id); S.focus ? advance('Marked not interested') : (toast('Marked not interested'), render()); break;
+    case 'hot': { const l = S.leads.get(id); const on = !l.hot; patchLead(id, {hot: on, stage: on && ['new','noanswer','talking'].includes(l.stage) ? 'hot' : (!on && l.stage === 'hot' ? 'talking' : l.stage), nextAt: on && (!l.nextAt || l.nextAt > at10(1)) ? at10(1) : l.nextAt}, {k:'stage', txt: on ? 'Marked HOT' : 'Removed HOT'}); toast(on ? 'Marked HOT · follow-up tomorrow' : 'HOT removed'); break; }
+    case 'waSent': { const l = S.leads.get(id); const k = t.dataset.k;
+      const p = {lastAt: Date.now(), nextAt: (!l.nextAt || l.nextAt <= Date.now() + H) ? at10(2) : l.nextAt};
+      if (k === 'first' && l.stage === 'new') p.stage = 'noanswer';
+      const ch = t.dataset.ch || 'wa';
+      patchLead(id, p, {k: ch, txt: CH[ch] + ' sent: ' + (k === 'own' ? 'own message' : TPL_LABEL[k])}, {quiet: true});
+      later(() => S.focus ? advance('Message logged') : (closeSheet(), toast('Message logged · follow-up set'), render())); break; }
+    case 'talkSheet': openSheet('talk', id); break;
+    case 'meetSheet': openSheet('meet', id); break;
+    case 'chip': { const g = t.dataset.g, v = t.dataset.v, F = S.form;
+      if (t.dataset.multi) { F[g] = F[g] || []; F[g] = F[g].includes(v) ? F[g].filter(x => x !== v) : [...F[g], v]; t.classList.toggle('on'); break; }
+      F[g] = v; if (g === 'next') F.nextPicked = true;
+      t.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === t));
+      if (g === 'temp' && !F.nextPicked) { F.next = v === 'Hot' ? '1' : v === 'Cold' ? '14' : '3'; document.querySelectorAll('#sheet [data-g="next"]').forEach(c => c.classList.toggle('on', c.dataset.v === F.next)); }
+      break; }
+    case 'dchip': { const g = t.dataset.g, v = t.dataset.v; S.draft[g] = S.draft[g] === v && g !== 'lang' ? undefined : v; if (g === 'lang') S.draft.langSet = true;
+      t.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.v === S.draft[g])); break; }
+    case 'saveTalk': { const l = S.leads.get(id), F = S.form; const said = F.said || []; const temp = F.temp || 'Warm';
+      const note = ($('#talk_note').value || '').trim();
+      const todos = said.map(x => TODO_MAP[x]).filter(Boolean);
+      let stage = l.stage; if (temp === 'Hot' && ['new','noanswer','talking'].includes(stage)) stage = 'hot'; else if (['new','noanswer','lost'].includes(stage)) stage = 'talking'; else if (temp !== 'Hot' && stage === 'hot') stage = 'talking';
+      patchLead(id, {stage, hot: temp === 'Hot', lastOutcome: 'talk', badNumber: 0, rule: l.rule && /^Number not working/.test(l.rule) ? '' : (l.rule || ''), said, todo: todos.length ? [...new Set(todos)].join(', ') : (l.todo || ''), noAnswer: 0, lastAt: Date.now(), nextAt: NEXT_FN[F.next || '3']()},
+        {k:'talk', txt: `Talked (${temp.toLowerCase()})` + (said.length ? ': ' + said.join(', ') : '') + (note ? ' – ' + note : '')}, {quiet: true});
+      S.focus ? advance('Call saved') : (closeSheet(), toast('Saved · next follow-up ' + when(S.leads.get(id).nextAt)), render()); break; }
+    case 'meetQuick': { const v = t.dataset.v; const d = new Date(); if (v === 't18') d.setHours(18,0,0,0); else { d.setDate(d.getDate() + (v === 'd2' ? 2 : 1)); d.setHours(v === 'm16' ? 16 : 11, 0, 0, 0); }
+      S.form.quick = v; S.form.dt = toLocalInput(d.getTime()); $('#meet_dt').value = S.form.dt; t.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === t)); break; }
+    case 'saveMeet': { const v = $('#meet_dt').value; const ms = new Date(v).getTime(); if (!v || isNaN(ms)) { toast('Pick a date and time'); break; }
+      const kind = S.form.kind || 'Video call'; const rem = ms - 3*H > Date.now() ? ms - 3*H : ms;
+      const link = (($('#meet_link') || {}).value || '').trim();
+      const em = (($('#meet_email') || {}).value || '').trim(); const ld = S.leads.get(id);
+      patchLead(id, {stage:'meeting', hot:true, meetingAt: ms, meetingKind: kind, meetLink: link, ...(em && !ld.email ? {email: em} : {}), lastAt: Date.now(), nextAt: rem, noAnswer: 0}, {k:'meeting', txt: `Meeting booked: ${kind}, ${when(ms)}`}, {quiet: true});
+      S.sheet.saved = true; renderSheet(); render(); break; }
+    case 'waConfirm': { const ch = t.dataset.ch || 'wa'; patchLead(id, {}, {k: ch, txt: CH[ch] + ' sent: meeting ' + (S.leads.get(id).meetLink ? 'link' : 'confirmation')}, {quiet: true}); later(() => toast('Logged')); break; }
+    case 'bookCal': bookCal(id); break;
+    case 'nextAfterMeet': advance('Meeting saved'); break;
+    case 'setField': { const l = S.leads.get(id), g = t.dataset.g, v = t.dataset.v;
+      if (g === 'stage') patchLead(id, {stage: v, hot: ['hot','meeting','nego'].includes(v) ? true : (['lost','closed'].includes(v) ? false : l.hot), ...(v === 'closed' ? {nextAt: null} : {})}, {k:'stage', txt:'Stage → ' + STAGE[v]});
+      else patchLead(id, {[g]: l[g] === v && g !== 'lang' ? null : v}); break; }
+    case 'setNext': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); toast('Follow-up set'); break;
+    case 'askDel': S.confirmDel = true; renderSheet(); break;
+    case 'cancelDel': S.confirmDel = false; renderSheet(); break;
+    case 'delLead': S.leads.delete(id); write('leads/' + id, null, 'del'); closeSheet(); toast('Lead deleted'); render(); break;
+    case 'saveLead': saveLead(t.dataset.then); break;
+    case 'setCallMode': try { localStorage.setItem('callMode', t.dataset.v); } catch (e) {} renderView(); toast('Calls on this device use option ' + t.textContent); break;
+    case 'dialOpen': { e.preventDefault(); const w = window.open('tel:' + t.dataset.v, '_blank'); try { navigator.clipboard.writeText(t.dataset.v).then(() => {}, () => {}); } catch (_) {}
+      toast(w ? 'Opening your dialer… (number also copied)' : 'This option is blocked on this device – try another'); break; }
+    case 'saveFbCfg': { const raw = $('#fb_cfg').value; const obj = {};
+      for (const k of ['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId']) { const m = raw.match(new RegExp(k + '\\s*["\']?\\s*:\\s*["\']([^"\']+)["\']')); if (m) obj[k] = m[1]; }
+      if (!obj.apiKey || !obj.projectId) { showAuth('setup', 'I could not find apiKey and projectId in that text. Copy the whole firebaseConfig block.'); break; }
+      try { localStorage.setItem('fbConfig', JSON.stringify(obj)); } catch (e) {} location.reload(); break; }
+    case 'googleIn': { const pr = new firebase.auth.GoogleAuthProvider();
+      firebase.auth().signInWithPopup(pr).catch(e => { if (/popup-blocked|operation-not-supported/.test(e.code || '')) firebase.auth().signInWithRedirect(pr); else showAuth('signin', authMsg(e)); }); break; }
+    case 'emailIn': case 'emailUp': { const em = $('#au_email').value.trim(), pw = $('#au_pass').value;
+      (act === 'emailIn' ? firebase.auth().signInWithEmailAndPassword(em, pw) : firebase.auth().createUserWithEmailAndPassword(em, pw)).catch(e => showAuth('signin', authMsg(e))); break; }
+    case 'resetPass': { const em = ($('#au_email') || {}).value || '';
+      if (!em.trim()) { showAuth('signin', 'Type your email first, then tap Forgot password.'); break; }
+      firebase.auth().sendPasswordResetEmail(em.trim()).then(() => showAuth('signin', 'Password reset email sent to ' + em.trim() + '.'), e => showAuth('signin', authMsg(e))); break; }
+    case 'signOut': unsubs.forEach(f => f()); unsubs = []; S.leads = new Map(); S.ready = false; firebase.auth().signOut(); break;
+    case 'exportAll': { const data = JSON.stringify({app: 'lead-desk', exported: new Date().toISOString(), leads: [...S.leads.values()], config: S.cfg}, null, 1);
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], {type: 'application/json'})); a.download = 'lead-desk-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a); a.click(); a.remove(); toast('Backup downloaded'); break; }
+    case 'importText': importLeads($('#imp_text').value); break;
+    case 'setWaMode': try { localStorage.setItem('waMode', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === 'app' ? 'WhatsApp opens in the app' : 'WhatsApp opens through wa.me'); break;
+    case 'parsePaste': { const txt = $('#paste_box').value; S.pasteText = txt; S.paste = parsePaste(txt);
+      if (!S.paste.length) { $('#paste_res').innerHTML = '<div class="banner">No phone number or email found. Add the number with its country code and try again.</div>'; break; }
+      $('#paste_res').innerHTML = pasteResult(); break; }
+    case 'pasteToForm': { const r = S.paste[0]; S.draft = {phone: r.phone, name: r.name, email: r.email, note: r.notes, source: r.source, project: '', leadNo: r.leadNo, campaign: r.campaign, lastAt: r.lastAt};
+      S.paste = null; S.pasteText = ''; renderView(); toast('Filled in – check and press Save'); const f = $('#f_name'); if (f) f.scrollIntoView({block: 'center'}); break; }
+    case 'pasteStage': S.pasteStage = t.dataset.k; $('#paste_res').innerHTML = pasteResult(); break;
+    case 'importPaste': { const res = (S.paste || []).map(applyRecord); const nNew = res.filter(x => x.kind === 'new').length;
+      S.paste = null; S.pasteText = ''; render(); renderView();
+      toast(`Saved: ${nNew} new, ${res.length - nNew} updated`);
+      if (res.length === 1) { setTab('today'); openSheet('lead', res[0].id); }
+      break; }
+    case 'tplLang': S.tplLang = t.dataset.v; renderView(); break;
+    case 'resetTpl': { const L = S.tplLang; if (S.cfg.templates && S.cfg.templates[L]) { delete S.cfg.templates[L][t.dataset.k]; saveCfg(); } renderView(); toast('Template reset'); break; }
+  }
+});
+
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.id === 'q') { S.q = t.value; renderLeadList(); return; }
+  if (t.id === 'paste_box') { S.pasteText = t.value; return; }
+  if (t.id === 'test_num') { try { localStorage.setItem('testNum', t.value); } catch (e) {} const box = $('#callTests'); if (box) box.innerHTML = CALL_MODES.map(([k, l]) => telLink(t.value || '0', 'chip', 'Test ' + l, k)).join(''); return; }
+  if (S.tab === 'add' && t.closest('#view')) {
+    const map = {f_phone:'phone', f_name:'name', f_email:'email', f_project:'project', f_note:'note'}; if (map[t.id]) S.draft[map[t.id]] = t.value;
+    if (t.id === 'f_phone') {
+      const info = phoneInfo(t.value), d = digits(t.value);
+      $('#f_det').textContent = d.length >= 3 && info.country ? `${info.flag} ${info.country} · messages in ${LANGS.find(x => x[0] === info.lang)[1]}` : '';
+      if (!S.draft.langSet) { S.draft.lang = info.lang; document.querySelectorAll('#f_lang .chip').forEach(c => c.classList.toggle('on', c.dataset.v === info.lang)); }
+      const dup = d.length >= 7 && [...S.leads.values()].find(l => digits(l.phone) === d);
+      $('#f_dup').innerHTML = dup ? `<div class="banner">This number is already saved as <b>${esc(dup.name)}</b>. <button class="btn btn-ghost" style="min-height:32px;padding:4px 10px" data-act="open" data-id="${dup.id}">Open lead</button></div>` : '';
+    }
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.edit) { const v = t.value.trim(); const p = {[t.dataset.edit]: v};
+    if (t.dataset.edit === 'phone') { const other = [...S.leads.values()].find(x => x.id !== t.dataset.id && digits(x.phone) === digits(v));
+      if (other) { toast('Not saved: ' + other.name + ' already has this number'); return; }
+      const info = phoneInfo(v); p.flag = info.flag; p.country = info.country; }
+    if (t.dataset.edit === 'email' && v && !/^\S+@\S+\.\S+$/.test(v)) { toast('That email looks wrong – check it'); return; }
+    patchLead(t.dataset.id, p, null, {quiet: true}); toast('Saved');
+    if (S.sheet && S.sheet.type === 'wa') renderSheet();
+    return; }
+  if (t.dataset.cfg) { const [a, b] = t.dataset.cfg.split('.'); if (b) { S.cfg[a] = {...(S.cfg[a] || {}), [b]: t.value.trim()}; } else S.cfg[a] = t.value.trim(); saveCfg(); toast('Saved'); return; }
+  if (t.dataset.tpl) { const L = S.tplLang; S.cfg.templates = S.cfg.templates || {}; S.cfg.templates[L] = {...(S.cfg.templates[L] || {}), [t.dataset.tpl]: t.value}; saveCfg(); toast('Template saved'); return; }
+  if (t.id === 'meet_dt') { S.form.dt = t.value; S.form.quick = null; }
+  if (t.id === 'meet_email') S.form.email = t.value.trim();
+});
+
+/* ---------- Google Calendar booking ---------- */
+let mcp = null;
+S.mcpOk = false;
+function calError(e){
+  const c = e && e.code;
+  if (c === 'server_not_connected' || c === 'server_not_found') return 'Google Calendar is not connected. Add it in claude.ai Settings → Connectors, then try again.';
+  if (c === 'needs_reauth') return 'Google Calendar needs to be reconnected. Reconnect it in claude.ai Settings → Connectors, then try again.';
+  if (c === 'selection_required') return 'You have more than one Google Calendar connection. Choose one when claude.ai asks, then try again.';
+  if (c === 'not_in_manifest' || c === 'approval_required' || c === 'consent_required') return 'Calendar access was not allowed. Tap Book again and choose Allow.';
+  if (c === 'blocked_by_policy') return 'Your account settings block calendar access from this app.';
+  if (c === 'not_granted' || c === 'capability_disabled' || c === 'capability_removed') return 'Calendar booking is not available here. Open the app at claude.ai, or use Save without calendar.';
+  if (c === 'tool_error') return 'Google Calendar refused the booking: ' + esc(e.message || 'unknown reason') + '.';
+  return 'Google Calendar did not answer. Check your calendar before booking again – the event may already be there.';
+}
+async function bookCal(id){
+  const l = S.leads.get(id); const s = S.sheet; if (!l || !s || s.busy) return;
+  const v = $('#meet_dt').value; const ms = new Date(v).getTime();
+  if (!v || isNaN(ms)) { toast('Pick a date and time'); return; }
+  const email = ($('#meet_email').value || '').trim();
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) { toast('That email looks wrong – check it or leave it empty'); return; }
+  if (!mcp) { s.err = calError({code: 'not_granted'}); renderSheet(); return; }
+  const kind = S.form.kind || 'Video call';
+  const iso = t => toLocalInput(t) + ':00';
+  const desc = [`Client: ${l.name}`, `Phone: +${digits(l.phone)}`, email && `Email: ${email}`, l.project && `Interested in: ${l.project}`, l.budget && `Budget: ${l.budget}`, l.purpose && `Goal: ${l.purpose}`, l.todo && `Promised: ${l.todo}`].filter(Boolean).join('\n');
+  const input = {summary: `${kind}: ${l.name}${S.cfg.myName ? ' & ' + S.cfg.myName : ''}`, startTime: iso(ms), endTime: iso(ms + H), description: desc,
+    addGoogleMeetUrl: kind === 'Video call', useDefaultReminders: true};
+  if (email) { input.attendees = [{email, displayName: l.name}]; input.notificationLevel = 'ALL'; }
+  if (kind === 'Office' || kind === 'Viewing') input.location = kind === 'Office' ? 'Office' : (l.project || 'Viewing');
+  s.busy = true; s.err = ''; renderSheet();
+  try {
+    const res = await mcp.callTool('Google Calendar', 'create_event', input);
+    const blob = JSON.stringify(res && (res.payload ?? res.content) || '');
+    const meet = (blob.match(/https:\/\/meet\.google\.com\/[a-z0-9-]+/i) || [])[0] || '';
+    const cal = (blob.match(/https:\/\/(?:www\.)?google\.com\/calendar\/event\?eid=[A-Za-z0-9_%=-]+/) || [])[0] || '';
+    const rem = ms - 3*H > Date.now() ? ms - 3*H : ms;
+    patchLead(id, {stage:'meeting', hot:true, meetingAt: ms, meetingKind: kind, meetLink: meet, calLink: cal, ...(email ? {email} : {}), lastAt: Date.now(), nextAt: rem, noAnswer: 0},
+      {k:'meeting', txt: `Meeting booked in Google Calendar: ${kind}, ${when(ms)}` + (email ? ` · invite emailed to ${email}` : '')}, {quiet: true});
+    Object.assign(S.sheet, {saved: true, inCal: true, invited: email, calLink: cal, busy: false});
+    renderSheet(); render(); toast('Booked in Google Calendar');
+  } catch (e) {
+    if (S.sheet) { S.sheet.busy = false; S.sheet.err = calError(e); renderSheet(); }
+  }
+}
+
+/* ---------- paste anything: find phone, email, name, source, campaign, comments ---------- */
+const SRC_MAP = {facebook:'Meta ads', meta:'Meta ads', 'meta ads':'Meta ads', instagram:'Instagram', tiktok:'TikTok', website:'Website', referral:'Referral', portal:'Portal', bayut:'Portal', 'property finder':'Portal'};
+function normPhone(raw){
+  let d = String(raw).replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (/^05\d{8}$/.test(d)) d = '971' + d.slice(1);
+  if (d.startsWith('440')) d = '44' + d.slice(3);
+  if (d.startsWith('9710')) d = '971' + d.slice(4);
+  return d;
+}
+const isPhoneLine = s => { const m = s.trim().replace(/^p:\s*/i, ''); return /^[+\d][\d\s\-().]{6,22}$/.test(m) && m.replace(/\D/g, '').length >= 8 && !/\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}/.test(m) && !/\d[.,]\d{2}$/.test(m); };
+const isDateLine = s => /^(\d{1,2}\/\d{1,2}\/\d{4}|yesterday|today|\d+\s+(minutes?|hours?)\s+ago)$/i.test(s.trim());
+/* A Bitrix list date (MM/DD/YYYY, "yesterday", "53 minutes ago") as a time stamp; noon when no time is shown */
+function bitrixDay(s){
+  const t = (s || '').trim(), d = new Date(), m = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/), ago = t.match(/^(\d+)\s+(minute|hour)/i);
+  if (ago) return Date.now() - (+ago[1]) * (/hour/i.test(ago[2]) ? 3600e3 : 60e3);
+  if (m) { d.setFullYear(+m[3], +m[1] - 1, +m[2]); } else if (/yesterday/i.test(t)) d.setDate(d.getDate() - 1);
+  d.setHours(12, 0, 0, 0); return d.getTime();
+}
+/* Use the time written in the newest note ("22/10/2026 4.20") when that note is from the same day */
+function noteTime(notes, dayMs){
+  const first = (notes || '').split('\n').find(x => x.trim()) || ''; const dm = first.match(/(\d{1,4})[\/-](\d{1,2})[\/-](\d{2,4})/);
+  const day = new Date(dayMs); if (!dm) return null;
+  let a = +dm[1], b = +dm[2], y = +dm[3]; if (y < 100) y += 2000;
+  const same = y === day.getFullYear() && ((a === day.getDate() && b === day.getMonth() + 1) || (b === day.getDate() && a === day.getMonth() + 1));
+  const tm = (first.slice(0, dm.index) + ' ' + first.slice(dm.index + dm[0].length)).match(/(?<![\d\/-])(\d{1,2})[.,:](\d{2})(?!\d)/);
+  if (!same || !tm) return null;
+  let h = +tm[1]; const mi = +tm[2]; if (h <= 8) h += 12; if (h > 23 || mi > 59) return null;
+  day.setHours(h, mi, 0, 0); return day.getTime();
+}
+const isCampaign = s => (/^LP\b/.test(s) || (/^[\p{L}\d][\p{L}\d ]* - [\p{L}\d ]+$/u.test(s) && s.split(/\s+/).length <= 6) || /\s[-–]\s.*\s[-–]\s/.test(s) || /^[A-Za-z0-9]+(_[A-Za-z0-9\/]+)+$/.test(s)) && !/[.!?,]$/.test(s) && s.length < 70;
+function parseOne(text){
+  const lines = text.split(/\r?\n/).map(x => x.trim());
+  const r = {}; const used = new Set();
+  const em = text.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/); if (em) r.email = em[0];
+  const ln = text.match(/Lead\s*#\s*(\d+)\.?[ \t]*([^\n]*)/i); if (ln) { r.leadNo = ln[1]; if (ln[2].trim()) r.name = ln[2].trim(); }
+  const nl = lines.find(s => /^name\s*[:\-]/i.test(s)); if (nl && !r.name) r.name = nl.replace(/^name\s*[:\-]\s*/i, '');
+  let phone = lines.find(isPhoneLine);
+  if (!phone) { const all = text.match(/(?:\+|00)?\d[\d\s\-().]{6,18}\d/g) || []; phone = all.find(p => { const n = p.replace(/\D/g, '').length; return n >= 8 && n <= 15 && !/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(p); }); }
+  if (phone) r.phone = '+' + normPhone(phone);
+  let tail = lines.length; while (tail > 0 && (!lines[tail - 1] || isDateLine(lines[tail - 1]))) tail--;  /* list dates sit at the end of a card */
+  lines.forEach((s, i) => {
+    if (!s) return; const low = s.toLowerCase();
+    if (isPhoneLine(s) || /^lead\s*#/i.test(s) || /^name\s*[:\-]/i.test(s) || /^(repeat|new) lead$/i.test(s) || /^for all/i.test(s) || /^selected:/i.test(s)) used.add(i);
+    else if (SRC_MAP[low]) { r.source = SRC_MAP[low]; used.add(i); }
+    else if (i >= tail && isDateLine(s)) { (r.dates = r.dates || []).push(s); used.add(i); }
+    else if (r.email && low === r.email.toLowerCase()) used.add(i);
+  });
+  const bare = n => (n || '').replace(/\s*\S+@\S+/, '').trim().toLowerCase();
+  if (r.name) lines.forEach((s, i) => { if (s && bare(s) === bare(r.name)) used.add(i); });
+  const rest = lines.map((s, i) => [s, i]).filter(([s, i]) => s && !used.has(i));
+  if (rest.length && isCampaign(rest[rest.length - 1][0])) { r.campaign = rest[rest.length - 1][0]; used.add(rest[rest.length - 1][1]); }
+  if (!r.name) { const said = text.match(/(?:my name is|this is|i am|i'm)\s+([A-Z\u0600-\u06FF][\p{L}'-]+(?:\s+[A-Z][\p{L}'-]+)?)/u); if (said) r.name = said[1]; }
+  if (!r.name) { const k = lines.findIndex((s, i) => s && !used.has(i) && /^[\p{L}][\p{L}\s.'-]{1,40}$/u.test(s) && s.split(/\s+/).length <= 4); if (k >= 0) { r.name = lines[k]; used.add(k); } }
+  if (r.name) r.name = r.name.replace(/\s*\S+@\S+/, '').replace(/^[$€\s]+|[$€\s]+$/g, '').trim();
+  r.notes = lines.map((s, i) => used.has(i) ? '' : s).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (r.dates) { r.date = r.dates[0]; const day = bitrixDay(r.dates[0]); const tm = noteTime(r.notes, day);
+    r.lastAt = tm || day; r.timeKnown = !!tm || /ago$/i.test(r.dates[0]);
+    if (r.dates[1]) r.created = bitrixDay(r.dates[1]);
+    if (r.dates[2]) r.followUp = bitrixDay(r.dates[2]); }
+  return r;
+}
+function parsePaste(text){
+  const cut = text.search(/^\s*For All\b/mi); if (cut >= 0) text = text.slice(0, cut);
+  const lines = text.split(/\r?\n/), starts = [];
+  lines.forEach((s, i) => { if (/^\s*Lead\s*#\s*\d+/i.test(s)) starts.push(i > 0 && isPhoneLine(lines[i - 1]) ? i - 1 : i); });
+  const recs = starts.length < 2 ? [parseOne(text)] : starts.map((st, k) => parseOne(lines.slice(st, k + 1 < starts.length ? starts[k + 1] : lines.length).join('\n')));
+  return recs.filter(r => r.phone || r.email);
+}
+const findByPhone = p => { const d = digits(p); return d.length >= 7 ? [...S.leads.values()].find(l => digits(l.phone) === d) : null; };
+const findByEmail = e => e ? [...S.leads.values()].find(l => (l.email || '').toLowerCase() === e.toLowerCase()) : null;
+function newLeadDoc(f){
+  const info = phoneInfo(f.phone || ''); const now = Date.now();
+  return {name: (f.name || 'No name').trim(), phone: f.phone ? '+' + digits(f.phone) : '', email: (f.email || '').trim(), flag: info.flag, country: info.country, lang: f.lang || info.lang,
+    source: f.source || null, budget: f.budget || null, purpose: f.purpose || null, ptype: f.ptype || null, timeline: f.timeline || null,
+    project: (f.project || '').trim(), note: f.leadNo ? '' : (f.notes || f.note || '').trim(), crm: f.leadNo ? (f.notes || f.note || '') : '', leadNo: f.leadNo || '', campaign: f.campaign || '',
+    crmCreated: f.created || null, crmTimeKnown: !!f.timeKnown,
+    stage: (f.notes || f.note) && f.lastAt ? 'talking' : 'new', hot: false, noAnswer: 0, said: [], todo: '',
+    createdAt: now, lastAt: f.lastAt || null, nextAt: now, meetingAt: null,
+    history: [{t: now, k: 'created', txt: 'Lead added' + (f.source ? ' from ' + f.source : '') + (f.leadNo ? ' (Bitrix #' + f.leadNo + ')' : '')}]};
+}
+/* Create a lead, or add the info to the lead that already has this number/email. Never makes a duplicate. */
+/* The lead's early call window on a given day (for Bitrix "contact again" dates) */
+function windowOnDay(l, dayMs){ const off = 4*H, day0 = Math.floor((dayMs + off) / D) * D; return day0 + callWindows(l)[0][0]*H - off; }
+const PASTE_STAGES = [['auto','As it is'],['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['later','Buy later'],['pool','Pool']];
+function stagePatch(l, stage, r){
+  const p = {};
+  if (stage && stage !== 'auto') {
+    p.stage = stage;
+    if (stage === 'noanswer') p.nextAt = nextWindowAt(l);
+    else if (stage === 'workshop' || stage === 'pool') p.nextAt = null;
+    else if (stage === 'later') p.nextAt = at10(30);
+    else if (stage === 'talking') p.nextAt = at10(1);
+    if (['later','pool','workshop'].includes(stage)) p.hot = false;
+  }
+  if (r.followUp) p.nextAt = windowOnDay(l, r.followUp);
+  return p;
+}
+function applyRecord(r, stage = S.pasteStage){
+  const ex = findByPhone(r.phone) || findByEmail(r.email);
+  if (ex) {
+    const p = {}; const notes = (r.notes || r.note || '').trim();
+    if (r.email && !ex.email) p.email = r.email;
+    if (r.leadNo) { p.leadNo = r.leadNo; if (notes) p.crm = notes; }
+    if (r.campaign) p.campaign = r.campaign;
+    if (r.source && (!ex.source || ex.source === 'Viktigt list')) p.source = r.source;
+    if (r.lastAt && (!ex.lastAt || r.lastAt > ex.lastAt)) { p.lastAt = r.lastAt; p.crmTimeKnown = !!r.timeKnown; }
+    if (r.created) p.crmCreated = r.created;
+    Object.assign(p, stagePatch(ex, stage, r));
+    const moved = p.stage && p.stage !== ex.stage ? ' · moved to ' + STAGE[p.stage] : '';
+    const back = r.followUp ? ' · contact again ' + new Date(p.nextAt).toLocaleDateString([], {day:'numeric', month:'short', year:'numeric'}) : '';
+    const hist = notes ? {k:'comment', txt: 'Update added' + moved + back + ': ' + (notes.length > 1500 ? notes.slice(0, 1500) + '…' : notes)} : {k:'note', txt: 'Details updated from a paste' + moved + back};
+    patchLead(ex.id, p, hist, {quiet: true});
+    return {kind: 'update', id: ex.id, name: ex.name};
+  }
+  const id = 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const lead = newLeadDoc(r); Object.assign(lead, stagePatch(lead, stage, r));
+  S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set');
+  return {kind: 'new', id, name: lead.name};
+}
+function pasteResult(){
+  const recs = S.paste || []; if (!recs.length) return '';
+  const rows = recs.map(r => { const ex = findByPhone(r.phone) || findByEmail(r.email);
+    return `<div class="bline">${ex ? '<span class="pill s-talking">Update</span>' : '<span class="pill s-new">New</span>'} <b>${esc(r.name || (ex && ex.name) || 'No name')}</b> · ${esc(r.phone || r.email || '')}${r.followUp ? ' · <b>back ' + esc(new Date(r.followUp).toLocaleDateString([], {day:'numeric', month:'short', year:'numeric'})) + '</b>' : ''}${r.notes ? ' · ' + esc(r.notes.split('\n')[0].slice(0, 60)) : ''}</div>`; }).join('');
+  const nNew = recs.filter(r => !(findByPhone(r.phone) || findByEmail(r.email))).length;
+  const st = S.pasteStage || 'auto';
+  return `<div class="brief"><div class="brief-label">Found ${recs.length} lead${recs.length > 1 ? 's' : ''}</div>${rows}
+    <div class="movebar"><span class="lbl">Put in</span>${PASTE_STAGES.map(([k, t]) => `<button class="chip ${st === k ? 'on' : ''}" data-act="pasteStage" data-k="${k}">${t}</button>`).join('')}</div>
+    ${recs.some(r => r.followUp) ? '<div class="hint">Leads with a "contact again" date come back on Today on that day, in their early call window.</div>' : ''}
+    <div class="actions"><button class="btn btn-primary" data-act="importPaste">${recs.length === 1 ? (nNew ? 'Save as new lead' : 'Add to existing lead') : `Save all (${nNew} new, ${recs.length - nNew} updates)`}</button>
+    ${recs.length === 1 && nNew ? '<button class="btn btn-ghost" data-act="pasteToForm">Check in the form first</button>' : ''}</div></div>`;
+}
+
+function saveLead(then){
+  const d = S.draft; const phone = (d.phone || '').trim();
+  if (digits(phone).length < 7) { toast('Add the phone number with country code'); $('#f_phone').focus(); return; }
+  const email = (d.email || '').trim();
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) { toast('That email looks wrong – check it or leave it empty'); $('#f_email').focus(); return; }
+  const ex = findByPhone(phone);
+  if (!ex && (!d.name || !d.name.trim())) { toast('Add a name'); $('#f_name').focus(); return; }
+  const res = applyRecord({...d, phone, email});
+  S.draft = {}; S.paste = null; S.pasteText = '';
+  toast(res.kind === 'new' ? 'Lead saved' : 'Already saved as ' + res.name + ' – your info was added to it');
+  if (then === 'open' || res.kind === 'update') { setTab('today'); openSheet('lead', res.id); } else { renderView(); $('#f_phone').focus(); }
+}
+
+document.addEventListener('paste', e => { if (e.target && e.target.id === 'paste_box') setTimeout(() => { const b = document.querySelector('[data-act="parsePaste"]'); if (b) b.click(); }, 50); });
+/* ---------- read a photo on the device (Tesseract OCR, loaded on first use) ---------- */
+S.canPhoto = true;
+let ocrLoad = null;
+const loadOcr = () => ocrLoad || (ocrLoad = new Promise((ok, bad) => { const sc = document.createElement('script');
+  sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js'; sc.onload = () => ok(window.Tesseract); sc.onerror = () => { ocrLoad = null; bad(new Error('load')); }; document.head.appendChild(sc); }));
+document.addEventListener('change', async e => {
+  const inp = e.target; if (inp.id !== 'photo_cam' && inp.id !== 'photo_pick') return;
+  const file = inp.files && inp.files[0]; inp.value = ''; if (!file) return;
+  const res = $('#paste_res');
+  res.innerHTML = '<div class="brief"><div class="brief-label">Reading the picture…</div><div class="hint" id="ocr_prog">The first time takes a little longer (the reader downloads once).</div></div>';
+  try {
+    const T = await loadOcr();
+    const out = await T.recognize(file, 'eng', {logger: m => { const p = $('#ocr_prog'); if (p && m.status) p.textContent = m.status + (m.progress ? ' ' + Math.round(m.progress * 100) + '%' : ''); }});
+    const text = (out && out.data && out.data.text) || '';
+    if (!text.trim()) throw {code: 'empty'};
+    const box = $('#paste_box'); const merged = ((box && box.value.trim()) ? box.value.trim() + '\n\n' : '') + text.trim();
+    S.pasteText = merged; if (box) box.value = merged;
+    S.paste = parsePaste(merged);
+    res.innerHTML = S.paste.length ? pasteResult() : '<div class="banner">I read the picture but found no phone number or email. Check the text in the box, add the number and press Sort it out.</div>';
+  } catch (err) {
+    res.innerHTML = `<div class="banner">${err && err.code === 'empty' ? 'No text found in this picture. Try a sharper photo or a screenshot.' : 'Could not read the picture. Check your internet connection the first time, or type the details.'}</div>`;
+  }
+});
+/* Import leads from a backup or from the old Lead Desk. Leads whose phone number is already saved are skipped (no duplicates). */
+async function importLeads(text){
+  const res = $('#imp_res'); let data;
+  try { data = JSON.parse(text); } catch (e) { res.innerHTML = '<div class="banner">That is not a Lead Desk backup. Copy it again from the old Lead Desk.</div>'; return; }
+  const list = Array.isArray(data) ? data : (data.leads || []); if (!list.length) { res.innerHTML = '<div class="banner">No leads found in it.</div>'; return; }
+  const have = new Set([...S.leads.values()].map(l => digits(l.phone)).filter(Boolean));
+  const fsdb = firebase.firestore(); let batch = fsdb.batch(), n = 0, added = 0, skipped = 0;
+  for (const l of list) {
+    const d = digits(l.phone); if (d && have.has(d)) { skipped++; continue; } if (d) have.add(d);
+    const id = (l.id && /^[\w-]+$/.test(l.id)) ? l.id : 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const doc = {...l}; delete doc.id;
+    batch.set(db.doc('leads/' + id), doc); added++;
+    if (++n === 400) { await batch.commit(); batch = fsdb.batch(); n = 0; }
+  }
+  if (n) await batch.commit();
+  if (data.config && !S.cfgLoaded || (data.config && !Object.keys(S.cfg || {}).length)) await db.doc('config/main').set(data.config);
+  S.impMsg = `Imported ${added} lead${added === 1 ? '' : 's'}${skipped ? `, skipped ${skipped} already saved` : ''}.`;
+  const box = $('#imp_text'); if (box) box.value = ''; renderView(); toast(S.impMsg);
+}
+document.addEventListener('change', e => { if (e.target.id !== 'imp_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(importLeads); });
+document.addEventListener('toggle', e => { if (e.target.id === 'editBox') S.editOpen = e.target.open; }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.sheet) closeSheet(); else if (S.focus) { S.focus = null; render(); } } });
+render();
+startApp();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+
+</body>
+</html>
