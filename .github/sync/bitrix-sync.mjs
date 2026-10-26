@@ -67,7 +67,7 @@ async function bx(hook, method, params){
 }
 
 async function main(){
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT || !process.env.BITRIX_WEBHOOK) { console.log('Secrets FIREBASE_SERVICE_ACCOUNT and BITRIX_WEBHOOK are not set yet – nothing to do.'); return; }
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT || !process.env.BITRIX_WEBHOOK) { console.log('::notice::Secrets FIREBASE_SERVICE_ACCOUNT and BITRIX_WEBHOOK are not set yet – nothing to do.'); return; }
   admin = (await import('firebase-admin')).default;
   admin.initializeApp({credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))});
   const fs = admin.firestore();
@@ -77,7 +77,7 @@ async function main(){
   const root = fs.collection('users').doc(uid), syncRef = root.collection('config').doc('sync');
   try {
     const cfg = (await root.collection('config').doc('main').get()).data() || {};
-    if (!cfg.bxInStage) { await syncRef.set({lastRun: Date.now(), lastAdded: 0, lastError: 'Choose the incoming Bitrix stage in Lead Desk → Messages → Bitrix24.'}, {merge: true}); return; }
+    if (!cfg.bxInStage) { console.log('::notice::No incoming Bitrix stage chosen in Lead Desk'); await syncRef.set({lastRun: Date.now(), lastAdded: 0, lastError: 'Choose the incoming Bitrix stage in Lead Desk → Messages → Bitrix24.'}, {merge: true}); return; }
     const me = (hook.match(/\/rest\/(\d+)\//) || [])[1];
     const list = await bx(hook, 'crm.lead.list', {filter: {STATUS_ID: cfg.bxInStage, ASSIGNED_BY_ID: me},
       select: ['ID', 'TITLE', 'NAME', 'LAST_NAME', 'PHONE', 'EMAIL', 'SOURCE_ID', 'SOURCE_DESCRIPTION', 'COMMENTS', 'DATE_CREATE'], order: {DATE_CREATE: 'DESC'}}) || [];
@@ -100,10 +100,10 @@ async function main(){
       }
     }
     await syncRef.set({lastRun: Date.now(), lastAdded: names.length, lastError: '', checked: list.length}, {merge: true});
-    console.log(`Checked ${list.length} Bitrix leads, added ${creates.length}, updated ${updates.length}, moved ${moves.length}.`);
+    console.log(`::notice::Checked ${list.length} Bitrix leads, added ${creates.length}, updated ${updates.length}, moved ${moves.length}.`);
   } catch (e) {
     await syncRef.set({lastRun: Date.now(), lastError: String(e.message || e)}, {merge: true}).catch(() => {});
     throw e;
   }
 }
-if (process.argv[1] && process.argv[1].endsWith('bitrix-sync.mjs')) main().catch(e => { console.error(e.message || e); process.exit(1); });
+if (process.argv[1] && process.argv[1].endsWith('bitrix-sync.mjs')) main().catch(e => { console.log('::error::' + (e.message || e)); process.exit(1); });
