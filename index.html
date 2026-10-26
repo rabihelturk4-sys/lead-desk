@@ -1322,7 +1322,7 @@ function doNoAnswer(id, ch){
   const stage = ['new','noanswer'].includes(l.stage) ? 'noanswer' : l.stage;
   const mailed = n >= 3 && ch !== 'email' && queueNaMail(l);
   patchLead(id, {noAnswer: n, lastOutcome: 'noanswer', lastAt: Date.now(), nextAt: nextWindowAt(l), stage, ...(mailed ? {naMailAt: Date.now()} : {})},
-    {k:'noanswer', txt: `No answer (${n}x)` + (ch ? ` + ${CH[ch]} sent` : '') + (mailed ? ' + email sent' : '')}, {quiet: true});
+    {k:'noanswer', txt: `No answer (${n}x)` + (ch ? ` – ${CH[ch]} message shared` : '') + (mailed ? ' + email sent' : '')}, {quiet: true});
 }
 /* Final email after the 3rd No answer: written to the outbox and sent from your Zoho mailbox by the background service (with your business card).
    Once per lead, only when the lead has an email and it is turned on in Settings → Email. */
