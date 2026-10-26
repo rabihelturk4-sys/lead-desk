@@ -155,7 +155,8 @@ textarea.input{min-height:84px;resize:vertical;line-height:1.4}
 .cbtn.call{background:var(--accent);color:var(--accent-ink)}
 .cbtn.wa{background:var(--wa);color:#fff}
 .cbtn.msg{background:var(--wa-bg);color:var(--wa)}
-.contact2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.contact2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.cbtn.botim{background:#E8F3FF;color:#0A66C2}
 .cbtn.sm{min-height:46px;flex-direction:row;gap:8px}
 .cbtn.sm svg{width:18px;height:18px}
 .cbtn.sms{background:var(--accent-bg);color:var(--accent)}
@@ -391,7 +392,7 @@ const DEF_SUBJ = {
   ar: {first:'خيارات عقارية في دبي لك', noanswer:'حاولت الاتصال بك', declined:'متى يناسبك الحديث؟', followup:'متابعة', offer:'{project} – فرصة جديدة في دبي', meeting_confirm:'تأكيد الاجتماع: {meeting}', meeting_remind:'تذكير: اجتماعنا {meeting}', after_meeting:'شكراً على وقتك اليوم', reengage:'فرص جديدة في دبي'},
   ru: {first:'Варианты недвижимости в Дубае для вас', noanswer:'Не получилось дозвониться', declined:'Когда удобно поговорить?', followup:'Продолжение нашего разговора', offer:'{project} – новая возможность в Дубае', meeting_confirm:'Встреча подтверждена: {meeting}', meeting_remind:'Напоминание о встрече {meeting}', after_meeting:'Спасибо за встречу', reengage:'Новые возможности в Дубае'}
 };
-const CH = {wa:'WhatsApp', sms:'SMS', email:'Email'};
+const CH = {wa:'WhatsApp', sms:'SMS', email:'Email', botim:'Botim'};
 const LINK_LBL = {en:'Meeting link: ', sv:'Möteslänk: ', ar:'رابط الاجتماع: ', ru:'Ссылка на встречу: '};
 function tplText(L, k, l){
   const raw = getTpl(L, k); let txt = fill(raw, {...l, lang: L});
@@ -399,13 +400,34 @@ function tplText(L, k, l){
   return txt;
 }
 const smsLink = (l, text) => 'sms:+' + digits(l.phone) + (text ? '?&body=' + encodeURIComponent(text) : '');
-const mailLink = (l, subj, body) => 'mailto:' + encodeURIComponent(l.email || '').replace(/%40/g, '@') + '?subject=' + encodeURIComponent(subj || '') + '&body=' + encodeURIComponent(body || '');
+/* Email opens in the program chosen in Messages → Email: Zoho Mail (web), Gmail (web) or the device's own mail app */
+const MAIL_MODES = [['zoho','Zoho Mail'],['gmail','Gmail'],['app','Phone / computer mail app']];
+function mailMode(){ try { const v = localStorage.getItem('mailMode'); if (MAIL_MODES.some(m => m[0] === v)) return v; } catch (e) {} return 'zoho'; }
+function zohoHost(){ try { return (localStorage.getItem('zohoHost') || 'mail.zoho.com').trim(); } catch (e) { return 'mail.zoho.com'; } }
+const mailTarget = () => mailMode() === 'app' ? '' : 'target="_blank" rel="noopener"';
+function mailLink(l, subj, body){
+  const to = l.email || '';
+  const mailto = 'mailto:' + encodeURIComponent(to).replace(/%40/g, '@') + '?subject=' + encodeURIComponent(subj || '') + '&body=' + encodeURIComponent(body || '');
+  const m = mailMode();
+  if (m === 'zoho') return 'https://' + zohoHost() + '/zm/comp.do?ct=' + encodeURIComponent(mailto);
+  if (m === 'gmail') return 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to) + '&su=' + encodeURIComponent(subj || '') + '&body=' + encodeURIComponent(body || '');
+  return mailto;
+}
+const mailSig = () => (S.cfg.emailSig || S.cfg.myName || '').trim();
+/* Botim has no link that opens a chat with a number: open the app (Android: by package; computer: Botim Web) and copy the number / text */
+function botimLink(){
+  if (/Android/i.test(navigator.userAgent || '')) return 'intent://#Intent;package=im.thebot.messenger;S.browser_fallback_url=' + encodeURIComponent('https://play.google.com/store/apps/details?id=im.thebot.messenger') + ';end';
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return 'botim://';
+  return 'https://web.botim.me/';
+}
+const botimTarget = () => IS_MOBILE ? '' : 'target="_blank" rel="noopener"';
 function msgLink(ch, l, k){
   const L = l.lang || 'en';
-  if (k === 'own') return ch === 'sms' ? smsLink(l) : ch === 'email' ? mailLink(l, '', '') : waLink(l);
+  if (ch === 'botim') return botimLink();
+  if (k === 'own') return ch === 'sms' ? smsLink(l) : ch === 'email' ? mailLink(l, '', mailSig() ? '\n\n' + mailSig() : '') : waLink(l);
   const txt = tplText(L, k, l);
   if (ch === 'sms') return smsLink(l, txt);
-  if (ch === 'email') return mailLink(l, fill(DEF_SUBJ[L][k], l), txt + (S.cfg.myName ? '\n\n' + S.cfg.myName : ''));
+  if (ch === 'email') return mailLink(l, fill(DEF_SUBJ[L][k], l), txt + (mailSig() ? '\n\n' + mailSig() : ''));
   return waLink(l, txt);
 }
 const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
@@ -710,6 +732,13 @@ function viewMsgs(){
     <button class="btn btn-ghost" data-act="signOut">Sign out</button>
   </div>
   <div class="card form">
+    <h3>Email</h3>
+    <p class="hint" style="margin:0">Choose where emails open, ready to send. Saved for this device.</p>
+    ${chipGroup('mailMode', MAIL_MODES, mailMode(), 'setMailMode')}
+    ${mailMode() === 'zoho' ? `<div class="field"><label for="zoho_host">Your Zoho Mail address (change only if your Zoho is not mail.zoho.com, e.g. mail.zoho.eu)</label><input class="input" id="zoho_host" value="${esc(zohoHost())}"></div>` : ''}
+    <div class="field"><label for="c_sig">Email signature</label><textarea class="input" id="c_sig" data-cfg="emailSig" placeholder="Rabih Elturk&#10;Property Consultant | RTI Real Estate&#10;+971 58 551 9020">${esc(S.cfg.emailSig || '')}</textarea></div>
+  </div>
+  <div class="card form">
     <h3>Open WhatsApp in</h3>
     <p class="hint" style="margin:0">Saved for this device only. On a phone, "WhatsApp app" opens the app straight away. If nothing happens when you tap a WhatsApp button, switch to "WhatsApp Web link".</p>
     ${chipGroup('waMode', [['app','WhatsApp app'],['web','WhatsApp Web link']], waMode(), 'setWaMode')}
@@ -738,8 +767,8 @@ function briefing(l){
     <div class="bline"><b>Last contacted:</b> ${esc(lastContact(l))}${l.lastAt ? ' (' + esc(ago(l.lastAt)) + ')' : ''}${lh ? ' – ' + esc(lh.txt) : ''}</div>
     ${l.said && l.said.length ? `<div class="bline"><b>They said:</b> ${esc(l.said.join(', '))}</div>` : ''}
     ${(l.noAnswer || 0) > 0 ? `<div class="bline"><b>${l.noAnswer} missed call${l.noAnswer > 1 ? 's' : ''} in a row.</b> ${l.noAnswer >= 2 ? 'Send a WhatsApp message.' : ''}</div>` : ''}
-    ${contactWay(l) !== 'any' ? `<div class="risk">Contact by ${esc(WAY[contactWay(l)])}</div>` : ''}
-    ${l.rule && !isWayRule(l.rule) ? `<div class="risk">${esc(l.rule)}</div>` : ''}
+    ${l.rule ? `<div class="${isWayRule(l.rule) ? 'bline' : 'risk'}">${isWayRule(l.rule) ? '<b>Contact note:</b> ' : ''}${esc(l.rule)}</div>` : ''}
+    ${usedWays(l) ? `<div class="bline"><b>You usually reach them by:</b> ${esc(usedWays(l))}</div>` : ''}
     <div class="bline"><b>Best time to call:</b> ${esc(winText(l))} Dubai · ${winOpen(l) ? '<b style="color:var(--good)">open now</b>' : esc(winNext(l))}</div>
     ${l.note ? `<div class="bline"><b>Note:</b> ${esc(l.note)}</div>` : ''}
     ${recent.length > 1 ? `<div class="hint">${recent.slice(1).map(h => esc(ago(h.t) + ': ' + h.txt)).join('<br>')}</div>` : ''}
@@ -755,8 +784,17 @@ const IC = {
   img: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" width="18" height="18"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>',
   mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>',
 };
+/* Which ways you have actually used with this lead, most used first (from the history) */
+function usedWays(l){
+  const n = {}; const add = (k, c = 1) => n[k] = (n[k] || 0) + c;
+  for (const h of (l.history || [])) {
+    if (h.k === 'talk' || h.k === 'meeting') add('Phone call'); else if (h.k === 'wa') add('WhatsApp'); else if (h.k === 'sms') add('SMS');
+    else if (h.k === 'email') add('Email'); else if (h.k === 'botim') add('Botim');
+  }
+  return Object.entries(n).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, c]) => k + ' (' + c + '×)').join(', ');
+}
 function contactBar(l){
-  const d = digits(l.phone), way = contactWay(l);
+  const d = digits(l.phone), way = 'any';
   const canCall = way === 'any' || way === 'call', canWa = way === 'any' || way === 'wa', canSms = way !== 'wa';
   const off = (ic, t) => `<span class="cbtn off">${ic}${t}<small>${esc(WAY[way])}</small></span>`;
   return `<div class="contact">
@@ -766,12 +804,12 @@ function contactBar(l){
   </div>
   <div class="contact2">
     ${canSms ? `<button class="cbtn sm sms" data-act="waSheet" data-ch="sms" data-id="${l.id}">${IC.msg}SMS</button>` : `<span class="cbtn sm off">${IC.msg}No SMS</span>`}
+    <a class="cbtn sm botim" href="${botimLink()}" ${botimTarget()} data-act="botimOpen" data-v="+${esc(d)}" data-id="${l.id}">${IC.call}Botim</a>
     ${l.email ? `<button class="cbtn sm mail" data-act="waSheet" data-ch="email" data-id="${l.id}">${IC.mail}Email</button>`
       : `<button class="cbtn sm mail none" data-act="addEmail" data-id="${l.id}">${IC.mail}Add email</button>`}
   </div>
   <div class="num">+${esc(d)} <button data-act="copy" data-v="+${esc(d)}">Copy number</button></div>
-  ${l.email ? `<div class="num">${esc(l.email)} <button data-act="copy" data-v="${esc(l.email)}">Copy email</button></div>` : ''}
-  <div class="movebar"><span class="lbl">Contact by</span>${WAYS.map(([k, t]) => `<button class="chip ${k === 'any' ? '' : 'wa'} ${way === k ? 'on' : ''}" data-act="setWay" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>`;
+  ${l.email ? `<div class="num">${esc(l.email)} <button data-act="copy" data-v="${esc(l.email)}">Copy email</button></div>` : ''}`;
 }
 function outcomeBar(l){
   const after = S.afterCall === l.id && S.lastCall ? `<div class="aftercall"><b>Call with ${esc(l.name)} ended?</b> Tap how it went below${S.focus ? ' – the next lead opens by itself' : ''}.
@@ -781,7 +819,7 @@ function outcomeBar(l){
     <button class="obtn na" data-act="noans" data-id="${l.id}">No answer</button>
     <a class="obtn nam" href="${msgLink('wa', l, 'noanswer')}" ${waTarget()} data-act="noansMsg" data-ch="wa" data-id="${l.id}">No answer + WhatsApp</a>
     <a class="obtn ok" href="${msgLink('sms', l, 'noanswer')}" ${EXT} data-act="noansMsg" data-ch="sms" data-id="${l.id}">No answer + SMS</a>
-    ${l.email ? `<a class="obtn" href="${msgLink('email', l, 'noanswer')}" ${EXT} data-act="noansMsg" data-ch="email" data-id="${l.id}">No answer + email</a>`
+    ${l.email ? `<a class="obtn" href="${msgLink('email', l, 'noanswer')}" ${mailTarget()} data-act="noansMsg" data-ch="email" data-id="${l.id}">No answer + email</a>`
       : `<button class="obtn lost" data-act="addEmail" data-id="${l.id}">No email saved</button>`}
     <button class="obtn ok" data-act="talkSheet" data-id="${l.id}">We talked</button>
     <button class="obtn mt" data-act="meetSheet" data-id="${l.id}">Book meeting</button>
@@ -791,15 +829,16 @@ function outcomeBar(l){
     <button class="obtn lost" data-act="lost" data-id="${l.id}">Not interested</button>
   </div>
   ${nextBtn}
-  <div class="lbl">Move to</div>
-  <div class="movebar">${[['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
   <div class="updbox">
     <div class="lbl">Add update</div>
     <div class="chips">${QUICK_UPD.map(q => `<button class="chip" data-act="quickUpd" data-id="${l.id}" data-v="${esc(q)}">${esc(q)}</button>`).join('')}</div>
     <textarea class="input" id="upd_${l.id}" placeholder="Write a comment (optional) – e.g. what they replied"></textarea>
     <button class="btn btn-primary" data-act="saveUpd" data-id="${l.id}">Save update</button>
     <div class="hint">Tap a quick update to save it at once. Anything you typed in the box is saved with it.</div>
-  </div>`;
+  </div>
+  <div class="lbl">Move to</div>
+  <div class="movebar">${[['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
+`;
 }
 
 /* ---------- focus (calling) mode ---------- */
@@ -854,10 +893,10 @@ function renderSheet(){
   } else if (s.type === 'wa') {
     const ch = s.ch || 'wa'; const L = s.lang || l.lang || 'en'; const sug = suggestTpl(l); const ll = {...l, lang: L};
     const order = [sug, ...TPL_META.map(t => t[0]).filter(k => k !== sug)];
-    const tgt = ch === 'wa' ? waTarget() : '';
-    const appName = ch === 'wa' ? 'WhatsApp' : ch === 'sms' ? 'your SMS app' : 'your email app';
+    const tgt = ch === 'wa' ? waTarget() : ch === 'email' ? mailTarget() : ch === 'botim' ? botimTarget() : '';
+    const appName = ch === 'wa' ? 'WhatsApp' : ch === 'sms' ? 'your SMS app' : ch === 'botim' ? 'Botim (the text and number are copied – paste them there)' : ({zoho: 'Zoho Mail', gmail: 'Gmail', app: 'your email app'})[mailMode()];
     h = head('Send a message', `To ${esc(l.name)} · tap a message to open ${appName} with it ready to send`)
-      + chipGroup('ch', [['wa','WhatsApp'],['sms','SMS'],['email','Email']], ch, 'msgCh')
+      + chipGroup('ch', [['wa','WhatsApp'],['sms','SMS'],['botim','Botim'],['email','Email']], ch, 'msgCh')
       + chipGroup('waLang', LANGS, L, 'waLang');
     if (ch === 'email' && !l.email) {
       h += `<div class="card"><div class="field"><label for="e_email2">No email saved for ${esc(l.name)}. Add it here:</label><input class="input" id="e_email2" type="email" inputmode="email" data-edit="email" data-id="${l.id}" placeholder="name@example.com" autocomplete="off"></div><button class="btn btn-primary" data-act="noop">Save email</button></div>`;
@@ -866,7 +905,8 @@ function renderSheet(){
           return `<div class="tplwrap"><a class="tpl ${k === sug ? 'sug' : ''}" href="${esc(msgLink(ch, ll, k))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="${k}" dir="${L === 'ar' ? 'rtl' : 'ltr'}"><b>${esc(TPL_LABEL[k])}</b><p>${subj ? '<strong>' + esc(subj) + '</strong><br>' : ''}${esc(txt)}</p></a>
           <button class="copyb" data-act="copyTpl" data-v="${esc(txt)}">Copy text</button></div>`; }).join('')
         + `<a class="btn btn-ghost" href="${esc(msgLink(ch, l, 'own'))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="own">Write my own message</a>`;
-      if (ch !== 'wa') h += `<p class="hint" style="margin:0">If nothing opens when you tap, use Copy text and paste the message into your ${ch === 'sms' ? 'Messages' : 'email'} app.</p>`;
+      if (ch === 'sms' || (ch === 'email' && mailMode() === 'app')) h += `<p class="hint" style="margin:0">If nothing opens when you tap, use Copy text and paste the message into your ${ch === 'sms' ? 'Messages' : 'email'} app.</p>`;
+      if (ch === 'email') h += `<p class="hint" style="margin:0">Opens in ${({zoho: 'Zoho Mail', gmail: 'Gmail', app: 'your mail app'})[mailMode()]}. Change it in Messages → Email.</p>`;
     }
   } else if (s.type === 'talk') {
     const F = S.form; F.temp = F.temp || (l.hot ? 'Hot' : 'Warm'); if (!F.nextPicked) F.next = F.temp === 'Hot' ? '1' : F.temp === 'Cold' ? '14' : '3';
@@ -886,7 +926,7 @@ function renderSheet(){
         + (l.meetLink ? `<div class="num" style="justify-content:flex-start;flex-wrap:wrap"><b style="color:var(--ink)">Meet link:</b> ${esc(l.meetLink)} <button data-act="copy" data-v="${esc(l.meetLink)}">Copy link</button></div>` : '')
         + (s.inCal && l.meetingKind === 'Video call' && !l.meetLink ? `<div class="banner">The event was created, but no Google Meet link came back. Open the event in Google Calendar to get the link.</div>` : '')
         + `<a class="tpl sug" href="${waLink(l, txt)}" ${waTarget()} data-act="waConfirm" data-ch="wa" data-id="${l.id}" dir="${L === 'ar' ? 'rtl' : 'ltr'}"><b>Send ${l.meetLink ? 'link' : 'confirmation'} on WhatsApp</b><p>${esc(txt)}</p></a>`
-        + (l.email ? `<a class="btn btn-ghost" href="${esc(msgLink('email', l, 'meeting_confirm'))}" ${EXT} data-act="waConfirm" data-ch="email" data-id="${l.id}">Send ${l.meetLink ? 'link' : 'confirmation'} by email</a>` : '')
+        + (l.email ? `<a class="btn btn-ghost" href="${esc(msgLink('email', l, 'meeting_confirm'))}" ${mailTarget()} data-act="waConfirm" data-ch="email" data-id="${l.id}">Send ${l.meetLink ? 'link' : 'confirmation'} by email</a>` : '')
         + (s.calLink ? `<a class="btn btn-ghost" href="${esc(s.calLink)}" target="_blank" rel="noopener">Open in Google Calendar</a>` : s.inCal ? '' : `<a class="btn btn-ghost" href="${calAdd}" target="_blank" rel="noopener">Add to Google Calendar</a>`)
         + `<button class="btn btn-primary btn-big" data-act="${S.focus ? 'nextAfterMeet' : 'closeSheet'}">${S.focus ? 'Next lead' : 'Done'}</button>`;
     } else {
@@ -943,6 +983,9 @@ document.addEventListener('click', e => {
     case 'startFocus': startFocus(); break;
     case 'startList': if (S.listIds && S.listIds.length) { S.focus = {q: [...S.listIds], i: 0, done: 0}; renderFocus(); } break;
     case 'exitFocus': S.focus = null; closeSheet(); render(); break;
+    case 'botimOpen': { if (id) { S.lastCall = {id, t: Date.now()}; saveSession(); }
+      try { navigator.clipboard.writeText(t.dataset.v).then(() => {}, () => {}); } catch (_) {}
+      toast('Opening Botim – number copied, paste it in Botim to call or chat'); break; }
     case 'dismissAfter': S.lastCall = null; S.afterCall = null; saveSession(); render(); break;
     case 'nextLead': { S.lastCall = null; S.afterCall = null; const nx = nextLeadAfter(id);
       if (nx) { openSheet('lead', nx); toast('Next: ' + S.leads.get(nx).name); } else { closeSheet(); toast('No more leads due – all caught up'); }
@@ -989,6 +1032,9 @@ document.addEventListener('click', e => {
     case 'lost': doLost(id); S.focus ? advance('Marked not interested') : (toast('Marked not interested'), render()); break;
     case 'hot': { const l = S.leads.get(id); const on = !l.hot; patchLead(id, {hot: on, stage: on && ['new','noanswer','talking'].includes(l.stage) ? 'hot' : (!on && l.stage === 'hot' ? 'talking' : l.stage), nextAt: on && (!l.nextAt || l.nextAt > at10(1)) ? at10(1) : l.nextAt}, {k:'stage', txt: on ? 'Marked HOT' : 'Removed HOT'}); toast(on ? 'Marked HOT · follow-up tomorrow' : 'HOT removed'); break; }
     case 'waSent': { const l = S.leads.get(id); const k = t.dataset.k;
+      if (t.dataset.ch === 'botim') { const L = (S.sheet && S.sheet.lang) || l.lang || 'en'; const txt = k === 'own' ? '' : tplText(L, k, {...l, lang: L});
+        try { navigator.clipboard.writeText(txt || ('+' + digits(l.phone))).then(() => {}, () => {}); } catch (_) {}
+        toast(txt ? 'Message copied – in Botim open the chat with +' + digits(l.phone) + ' and paste' : 'Number copied – paste it in Botim'); }
       const p = {lastAt: Date.now(), nextAt: (!l.nextAt || l.nextAt <= Date.now() + H) ? at10(2) : l.nextAt};
       if (k === 'first' && l.stage === 'new') p.stage = 'noanswer';
       const ch = t.dataset.ch || 'wa';
@@ -1049,6 +1095,7 @@ document.addEventListener('click', e => {
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], {type: 'application/json'})); a.download = 'lead-desk-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click(); a.remove(); toast('Backup downloaded'); break; }
     case 'importText': importLeads($('#imp_text').value); break;
+    case 'setMailMode': try { localStorage.setItem('mailMode', t.dataset.v); } catch (e) {} renderView(); toast('Emails open in ' + t.textContent); break;
     case 'setWaMode': try { localStorage.setItem('waMode', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === 'app' ? 'WhatsApp opens in the app' : 'WhatsApp opens through wa.me'); break;
     case 'parsePaste': { const txt = $('#paste_box').value; S.pasteText = txt; S.paste = parsePaste(txt);
       if (!S.paste.length) { $('#paste_res').innerHTML = '<div class="banner">No phone number or email found. Add the number with its country code and try again.</div>'; break; }
@@ -1070,6 +1117,7 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; renderLeadList(); return; }
   if (t.id === 'paste_box') { S.pasteText = t.value; return; }
+  if (t.id === 'zoho_host') { try { localStorage.setItem('zohoHost', t.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') || 'mail.zoho.com'); } catch (e) {} return; }
   if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {}
     const st = $('#ai_state'); if (st) st.textContent = aiProvider(k) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(k) === 'claude' ? '✓ Claude key saved – photos are read with AI' : k ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone.'; return; }
   if (t.id === 'test_num') { try { localStorage.setItem('testNum', t.value); } catch (e) {} const box = $('#callTests'); if (box) box.innerHTML = CALL_MODES.map(([k, l]) => telLink(t.value || '0', 'chip', 'Test ' + l, k)).join(''); return; }
