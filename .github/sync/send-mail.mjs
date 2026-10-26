@@ -10,7 +10,7 @@ async function main(){
   if (!uid) { const users = await fs.collection('users').listDocuments(); if (users.length !== 1) throw new Error('Found ' + users.length + ' Lead Desk users – set the LEADDESK_UID secret.'); uid = users[0].id; }
   const root = fs.collection('users').doc(uid), syncRef = root.collection('config').doc('sync');
   const pending = (await root.collection('outbox').where('status', '==', 'pending').get()).docs;
-  if (!pending.length) { console.log('::notice::No emails waiting.'); return; }
+  if (!pending.some(d => !(d.data().sendAt > Date.now()))) { console.log('::notice::No emails due.'); return; }
   const cfg = (await root.collection('config').doc('main').get()).data() || {};
   const card = (await root.collection('config').doc('card').get()).data();
   const attachments = [];
@@ -19,8 +19,14 @@ async function main(){
   let sent = 0, lastErr = '';
   for (const d of pending) {
     const m = d.data();
+    if (m.sendAt && m.sendAt > Date.now()) continue;                                   /* scheduled for later */
+    if (m.kind === 'followup_email' && m.leadId) {                                      /* not needed if you were in touch since */
+      const l = (await root.collection('leads').doc(m.leadId).get()).data();
+      if (!l || (l.lastAt || 0) > m.createdAt + 60e3 || ['closed', 'lost', 'meeting'].includes(l.stage)) { await d.ref.update({status: 'cancelled'}); continue; }
+    }
     try {
-      await mail.sendMail({from: {name: cfg.myName || '', address: ZOHO_EMAIL.trim()}, to: m.to, subject: m.subject, text: m.text, attachments});
+      await mail.sendMail({from: {name: cfg.myName || '', address: ZOHO_EMAIL.trim()}, to: m.to, subject: m.subject, text: m.text,
+        attachments: m.kind === 'na_email' || !m.kind ? attachments : [], ...(m.ics ? {icalEvent: {method: 'REQUEST', filename: 'invite.ics', content: m.ics}} : {})});
       await d.ref.update({status: 'sent', sentAt: Date.now()});
       if (m.leadId) await root.collection('leads').doc(m.leadId).update({history: admin.firestore.FieldValue.arrayUnion({t: Date.now(), k: 'note', txt: 'Email sent automatically to ' + m.to + ': ' + m.subject})}).catch(() => {});
       sent++;
@@ -31,6 +37,6 @@ async function main(){
     }
   }
   await syncRef.set({mailRun: Date.now(), mailSent: sent, mailError: lastErr}, {merge: true});
-  console.log(`::notice::Emails sent: ${sent} of ${pending.length}.` + (lastErr ? ' Problem: ' + lastErr : ''));
+  console.log(`::notice::Emails sent: ${sent}.` + (lastErr ? ' Problem: ' + lastErr : ''));
 }
 main().catch(e => { console.log('::error::' + (e.message || e)); process.exit(1); });
