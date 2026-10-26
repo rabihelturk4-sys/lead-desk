@@ -510,13 +510,13 @@ function bxForm(obj, pre = '', out = []){
   }
   return out.join('&');
 }
-async function bxCall(method, params = {}, hook = bxHook()){
+async function bxCall(method, params = {}, hook = bxHook(), full){
   let r;
   try { r = await fetch(hook + method + '.json', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: bxForm(params)}); }
   catch (e) { throw {code: 'net', message: 'Bitrix could not be reached from this browser.'}; }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) throw {code: j.error || ('http' + r.status), message: j.error_description || ('Bitrix answered ' + r.status)};
-  return j.result;
+  return full ? j : j.result;
 }
 /* Queue kept on the device, so nothing is lost when the phone is offline; tried again when the app comes back */
 let bxQ = []; try { bxQ = JSON.parse(localStorage.getItem('bxQueue') || '[]'); } catch (e) {}
@@ -569,35 +569,48 @@ async function bxEnsure(l){
   return id;
 }
 const BX_SKIP = new Set(['created', 'note']);
-/* Update all: every lead in Lead Desk is found in Bitrix (saved number, then phone, then email) and set to the matching stage.
-   Leads that are not in Bitrix are listed, not created. */
-let bxSyncing = false;
-async function bxSyncAll(){
-  if (bxSyncing) return; const map = S.cfg.bxMap || {};
-  const list = [...S.leads.values()].filter(l => map[l.stage]);
-  if (!list.length) { toast('Match the stages first (Test connection)'); return; }
-  if (!confirm('Update ' + list.length + ' leads in Bitrix to the stage they have in Lead Desk?')) return;
-  bxSyncing = true; let ok = 0; const missing = [], failed = [];
-  const call = async (m, p) => { for (let k = 0; ; k++) { try { return await bxCall(m, p); } catch (e) { if (e.code === 'QUERY_LIMIT_EXCEEDED' && k < 4) { await new Promise(r => setTimeout(r, 1500)); continue; } throw e; } } };
-  const find = async (type, v) => { if (!v) return ''; const r = await call('crm.duplicate.findbycomm', {entity_type: 'LEAD', type, values: [v]}); return (r && r.LEAD && r.LEAD[0]) ? String(r.LEAD[0]) : ''; };
-  for (let i = 0; i < list.length; i++) {
-    const l = list[i];
-    S.bxSyncMsg = `Updating Bitrix… ${i + 1} of ${list.length}`; const el = $('#bx_sync'); if (el) el.textContent = S.bxSyncMsg;
-    try {
-      let id = bxId(l) || await find('PHONE', l.phone ? '+' + digits(l.phone) : '') || await find('EMAIL', l.email);
-      if (!id) { missing.push(l.name || l.phone); continue; }
-      try { await call('crm.lead.update', {id, fields: {STATUS_ID: map[l.stage]}}); }
-      catch (e) { if (!bxId(l) || !/not found/i.test(e.message || '')) throw e;            /* saved number was wrong: look it up */
-        id = await find('PHONE', l.phone ? '+' + digits(l.phone) : '') || await find('EMAIL', l.email);
-        if (!id) { missing.push(l.name || l.phone); continue; } await call('crm.lead.update', {id, fields: {STATUS_ID: map[l.stage]}}); }
-      if (l.bxId !== id) { write('leads/' + l.id, {bxId: id}); const cur = S.leads.get(l.id); if (cur) S.leads.set(l.id, {...cur, bxId: id}); }
-      ok++;
-    } catch (e) { if (e.code === 'net') { failed.push('no connection'); break; } failed.push((l.name || '') + ': ' + (e.message || e.code)); }
-    await new Promise(r => setTimeout(r, 250));
-  }
-  bxSyncing = false;
-  S.bxSyncMsg = `Done ✓ ${ok} updated in Bitrix.` + (missing.length ? ` ${missing.length} not found in Bitrix: ${missing.slice(0, 15).join(', ')}${missing.length > 15 ? '…' : ''}.` : '') + (failed.length ? ` ${failed.length} problem${failed.length > 1 ? 's' : ''}: ${failed.slice(0, 3).join('; ')}` : '');
-  renderView(); toast('Bitrix updated: ' + ok);
+/* Bring in from Bitrix: every lead assigned to me in Bitrix that is not in Lead Desk is added in the matching stage,
+   and leads already here get their email (and phone) from Bitrix when it is missing. Nothing is changed in Bitrix. */
+let bxImporting = false;
+async function bxImportAll(){
+  if (bxImporting) return; const map = S.cfg.bxMap || {};
+  const back = {}; for (const k of ['noanswer','talking','workshop','pool','later','new','hot','meeting','nego','closed','lost']) if (map[k] && !back[map[k]]) back[map[k]] = k;
+  if (!Object.keys(back).length) { toast('Match the stages first (Test connection)'); return; }
+  bxImporting = true; const show = m => { S.bxSyncMsg = m; const el = $('#bx_sync'); if (el) el.textContent = m; };
+  try {
+    const all = [];
+    for (let start = 0; ; ) {
+      show('Reading Bitrix… ' + all.length + ' leads');
+      const j = await bxCall('crm.lead.list', {filter: {ASSIGNED_BY_ID: bxMe()}, select: ['ID', 'TITLE', 'NAME', 'LAST_NAME', 'PHONE', 'EMAIL', 'STATUS_ID', 'SOURCE_ID', 'COMMENTS', 'DATE_CREATE', 'DATE_MODIFY'], order: {ID: 'ASC'}, start}, bxHook(), true);
+      all.push(...(j.result || [])); if (!j.next || !(j.result || []).length) break; start = j.next;
+      await new Promise(r => setTimeout(r, 300));
+    }
+    let added = 0, emails = 0, linked = 0; const skipped = {};
+    for (const b of all) {
+      const phone = ((b.PHONE || [])[0] || {}).VALUE || '', email = ((b.EMAIL || [])[0] || {}).VALUE || '';
+      const ex = [...S.leads.values()].find(l => bxId(l) === String(b.ID)) || findByPhone(phone) || findByEmail(email);
+      if (ex) {
+        const p = {};
+        if (email && !ex.email) { p.email = email; emails++; }
+        if (phone && !digits(ex.phone)) p.phone = phone;
+        if (!ex.bxId) { p.bxId = String(b.ID); linked++; }
+        if (Object.keys(p).length) { S.leads.set(ex.id, {...ex, ...p}); write('leads/' + ex.id, p); }
+        continue;
+      }
+      if (b.STATUS_ID === S.cfg.bxInStage) continue;                    /* new leads come in through the normal check */
+      const stage = back[b.STATUS_ID]; if (!stage) { skipped[b.STATUS_ID] = (skipped[b.STATUS_ID] || 0) + 1; continue; }
+      const name = [b.NAME, b.LAST_NAME].filter(Boolean).join(' ') || b.TITLE || 'Lead ' + b.ID, id = 'X' + b.ID;
+      const lead = newLeadDoc({name, phone, email, notes: b.COMMENTS ? String(b.COMMENTS).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').trim() : '', source: b.SOURCE_ID || 'Bitrix'});
+      Object.assign(lead, {stage, bxId: String(b.ID), leadNo: String(b.ID), crmCreated: b.DATE_CREATE ? Date.parse(b.DATE_CREATE) : Date.now(), lastAt: b.DATE_MODIFY ? Date.parse(b.DATE_MODIFY) : null,
+        hot: ['hot','meeting','nego'].includes(stage), history: [{t: Date.now(), k: 'created', txt: 'Brought in from Bitrix (lead #' + b.ID + ')'}]});
+      lead.nextAt = ['noanswer','talking','new','hot','meeting','nego'].includes(stage) ? nextWindowAt(lead) : stage === 'later' ? at10(30) : null;
+      S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set'); added++;
+    }
+    const names = Object.fromEntries((S.bxStatuses || []).map(x => [x.STATUS_ID, x.NAME])), sk = Object.entries(skipped);
+    show(`Done ✓ Checked ${all.length} Bitrix leads: ${added} added to Lead Desk, ${emails} emails added, ${linked} linked to Bitrix.` + (sk.length ? ' Not brought in (stage not matched): ' + sk.map(([k, n]) => (names[k] || k) + ' ' + n).join(', ') + '.' : ''));
+    render(); toast(added + ' leads added, ' + emails + ' emails added');
+  } catch (e) { show('Bitrix: ' + (e.message || e.code)); }
+  bxImporting = false;
 }
 const BX_AUTO = new Set(['noanswer', 'declined', 'badnum', 'talk', 'meeting', 'stage']);   /* written by the app; your own comment replaces them */
 /* Junk: the lead is already gone from Lead Desk, so it is only looked up in Bitrix (never created), set to the Junk reason and noted */
@@ -974,7 +987,7 @@ function viewMsgs(){
       <div class="hint">${S.sync && S.sync.lastRun ? `Last check ${ago(S.sync.lastRun)}${S.sync.lastAdded ? ' – ' + S.sync.lastAdded + ' new' : ''}${S.sync.lastError ? ' – problem: ' + esc(S.sync.lastError) : ' ✓'}` : 'Not running yet – add the two GitHub secrets.'}</div>
       <div class="field"><label for="c_vapid">Web Push key (Firebase → Project settings → Cloud Messaging → Web Push certificates)</label><input class="input" id="c_vapid" data-cfg="vapidKey" autocomplete="off" value="${esc(S.cfg.vapidKey || '')}"></div>
       <button class="btn btn-ghost" data-act="enablePush">${pushOn() ? '✓ Alerts on for this device – tap to refresh' : 'Turn on alerts on this device'}</button>` : ''}
-    ${bxValid(bxHook()) && Object.keys(S.cfg.bxMap || {}).length ? `<button class="btn btn-ghost" data-act="bxSyncAll">Update all leads in Bitrix from Lead Desk</button><div class="hint" id="bx_sync">${esc(S.bxSyncMsg || 'Sets every lead in Bitrix to the stage it has here. Leads not found in Bitrix are listed, not created.')}</div>` : ''}
+    ${bxValid(bxHook()) && Object.keys(S.cfg.bxMap || {}).length ? `<button class="btn btn-ghost" data-act="bxImportAll">Bring in all my Bitrix leads and emails</button><div class="hint" id="bx_sync">${esc(S.bxSyncMsg || 'Adds every Bitrix lead assigned to you that is missing here, in the matching stage, and adds the email from Bitrix to leads that have none. Bitrix is not changed.')}</div>` : ''}
     ${bxValid(bxHook()) ? chipGroup('bxOn', [['0','Off – test first'],['1','Update Bitrix automatically']], bxOn() ? '1' : '0', 'setBxOn') : ''}
     ${bxQ.length ? `<div class="hint">${bxQ.length} update${bxQ.length > 1 ? 's' : ''} waiting to be sent to Bitrix.</div>` : ''}${S.bxErr ? `<div class="banner">Last Bitrix problem: ${esc(S.bxErr)}</div>` : ''}
   </div>
@@ -1385,7 +1398,7 @@ document.addEventListener('click', e => {
       }, e => { S.bxMsg = `<div class="banner">${esc(e.code === 'net' ? 'Bitrix did not answer this browser. Check the link, or your Bitrix blocks access from other websites.' : (e.message || e.code))}</div>`; renderView(); });
       break; }
     case 'bxPullNow': bxPull(true); break;
-    case 'bxSyncAll': bxSyncAll(); break;
+    case 'bxImportAll': bxImportAll(); break;
     case 'enablePush': enablePush(false); break;
     case 'askNotif': try { Notification.requestPermission().then(r => { toast(r === 'granted' ? 'Notifications on' : 'Notifications were not allowed – turn them on in the phone settings for this app'); renderView(); }); } catch (e) { toast('This browser cannot show notifications'); } break;
     case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
