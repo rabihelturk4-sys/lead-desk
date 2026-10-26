@@ -525,9 +525,9 @@ let bxBusy = false;
 async function bxRun(){
   if (bxBusy || !bxQ.length || !bxValid(bxHook())) return; bxBusy = true;
   while (bxQ.length) {
-    const job = bxQ[0];
+    const job = bxQ.find(j => !bxHeld(j)); if (!job) break;
     try {
-      if (job.method === 'ld.junk') { await bxJunk(job.params); bxQ.shift(); bxSave(); S.bxErr = ''; continue; }
+      if (job.method === 'ld.junk') { await bxJunk(job.params); bxDrop(job); bxSave(); S.bxErr = ''; continue; }
       if (job.lead && !job.params.id && !(job.params.fields && job.params.fields.ENTITY_ID)) {
         const l = S.leads.get(job.lead); const id = l ? await bxEnsure(l) : '';
         if (!id) throw {code: 'noid', message: 'The lead could not be found or created in Bitrix.'};
@@ -535,17 +535,23 @@ async function bxRun(){
       }
       if (job.method === 'ld.comment') await bxAddComment(job.params.id, job.params.text);
       else await bxCall(job.method, job.params);
-      bxQ.shift(); bxSave(); S.bxErr = '';
+      bxDrop(job); bxSave(); S.bxErr = '';
     } catch (e) {
       if (e.code === 'net' || /^http5/.test(e.code)) { S.bxErr = e.message; break; }   /* offline: keep and retry later */
-      S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxQ.shift(); bxSave(); toast('Bitrix did not take the ' + job.what + ': ' + (e.message || e.code));
+      S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxDrop(job); bxSave(); toast('Bitrix did not take the ' + job.what + ': ' + (e.message || e.code));
     }
   }
   bxBusy = false;
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') bxRun(); });
 window.addEventListener('online', () => bxRun());
-function bxQueue(l, method, params, what){ bxQ.push({lead: l.id, method, params, what, t: Date.now()}); bxSave(); bxRun(); }
+function bxQueue(l, method, params, what, auto){ bxQ.push({lead: l.id, method, params, what, t: Date.now(), ...(auto ? {auto: true} : {})}); bxSave(); bxRun(); }
+const bxDrop = job => { const i = bxQ.indexOf(job); if (i >= 0) bxQ.splice(i, 1); };
+/* The comment from "How did it go?" waits while that lead is still open (max 10 min): if you then write your own comment,
+   yours goes to Bitrix instead – one comment, not both. Closing the lead or going to the next one sends it. */
+const openLeadId = () => (S.sheet && S.sheet.type === 'lead' && S.sheet.id) || (S.focus && curFocus() && curFocus().id) || null;
+const bxHeld = j => j.auto && Date.now() - j.t < 10*60e3 && openLeadId() === j.lead;
+setInterval(() => { if (bxQ.some(j => j.auto)) bxRun(); }, 60e3);
 const bxStamp = t => { const d = new Date(t), z = n => String(n).padStart(2, '0'); return `${z(d.getDate())}-${z(d.getMonth() + 1)}-${d.getFullYear()} ${z(d.getHours())},${z(d.getMinutes())}`; };
 /* Find this lead in Bitrix (saved id, then phone, then email) or create it; the id is saved on the lead */
 async function bxEnsure(l){
@@ -563,6 +569,7 @@ async function bxEnsure(l){
   return id;
 }
 const BX_SKIP = new Set(['created', 'note']);
+const BX_AUTO = new Set(['noanswer', 'declined', 'badnum', 'talk', 'meeting', 'stage']);   /* written by the app; your own comment replaces them */
 /* Junk: the lead is already gone from Lead Desk, so it is only looked up in Bitrix (never created), set to the Junk reason and noted */
 async function bxJunk(p){
   let id = p.id;
@@ -641,7 +648,11 @@ function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
   const map = S.cfg.bxMap || {};
   if (p.stage && p.stage !== (before && before.stage) && map[p.stage]) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage]}}, 'stage ' + STAGE[p.stage]);
-  if (hist && !BX_SKIP.has(hist.k) && hist.txt) bxQueue(l, 'ld.comment', {id: bxId(l) || undefined, text: bxStamp(Date.now()) + '\n' + hist.txt}, 'comment');
+  if (!hist || BX_SKIP.has(hist.k) || !hist.txt) return;
+  const auto = BX_AUTO.has(hist.k);
+  if (auto && S.manualAt && S.manualAt[l.id] && Date.now() - S.manualAt[l.id] < 10*60e3) return;   /* you already wrote the comment */
+  if (!auto) { S.manualAt = {...(S.manualAt || {}), [l.id]: Date.now()}; const before = bxQ.length; bxQ = bxQ.filter(j => !(j.auto && j.lead === l.id && j.method === 'ld.comment')); if (bxQ.length !== before) bxSave(); }
+  bxQueue(l, 'ld.comment', {id: bxId(l) || undefined, text: bxStamp(Date.now()) + '\n' + hist.txt}, 'comment', auto);
 }
 
 function patchLead(id, patch, hist, opts = {}){
@@ -1070,7 +1081,7 @@ function outcomeBar(l){
 /* ---------- focus (calling) mode ---------- */
 function startFocus(){ const q = buildQueue(); if (!q.length) return; S.focus = {q, i: 0, done: 0}; renderFocus(); }
 function curFocus(){ if (!S.focus) return null; while (S.focus.i < S.focus.q.length && !S.leads.get(S.focus.q[S.focus.i])) S.focus.i++; return S.leads.get(S.focus.q[S.focus.i]) || null; }
-function advance(msg){ if (!S.focus) { if (msg) toast(msg); return; } S.focus.i++; S.focus.done++; closeSheet(); renderFocus(); $('#focus').scrollTo(0,0); toast((msg || 'Saved') + (curFocus() ? ' · next lead' : '')); }
+function advance(msg){ if (!S.focus) { if (msg) toast(msg); return; } S.focus.i++; setTimeout(bxRun, 0); S.focus.done++; closeSheet(); renderFocus(); $('#focus').scrollTo(0,0); toast((msg || 'Saved') + (curFocus() ? ' · next lead' : '')); }
 function renderFocus(){
   const el = $('#focus');
   if (!S.focus) { el.hidden = true; el.innerHTML = ''; document.body.style.overflow = ''; return; }
@@ -1087,8 +1098,8 @@ function renderFocus(){
 }
 
 /* ---------- sheets ---------- */
-function openSheet(type, id, extra = {}){ S.sheet = {type, id, ...extra}; S.form = {}; S.confirmDel = false; if (type === 'lead') S.editOpen = false; renderSheet(); $('#sheetWrap').hidden = false; $('#sheet').scrollTo(0,0); }
-function closeSheet(){ S.sheet = null; $('#sheetWrap').hidden = true; $('#sheet').innerHTML = ''; }
+function openSheet(type, id, extra = {}){ if (S.sheet && S.sheet.id !== id) setTimeout(bxRun, 0); S.sheet = {type, id, ...extra}; S.form = {}; S.confirmDel = false; if (type === 'lead') S.editOpen = false; renderSheet(); $('#sheetWrap').hidden = false; $('#sheet').scrollTo(0,0); }
+function closeSheet(){ S.sheet = null; $('#sheetWrap').hidden = true; $('#sheet').innerHTML = ''; setTimeout(bxRun, 0); }
 function head(title, sub){ return `<div class="grab"></div><div class="shead"><div style="flex:1;min-width:0"><h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ''}</div><button class="x" data-act="closeSheet" aria-label="Close">✕</button></div>`; }
 function renderSheet(){
   const s = S.sheet; if (!s) return; const l = S.leads.get(s.id); const box = $('#sheet');
