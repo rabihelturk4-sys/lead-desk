@@ -438,7 +438,8 @@ const myEmail = () => (S.cfg.myEmail || MY_EMAIL).trim();
 const mailSig = () => (S.cfg.emailSig || [S.cfg.myName, 'RTI Real Estate', myEmail()].filter(Boolean).join('\n')).trim();
 /* Botim has no link that opens a chat with a number: open the app (Android: by package; computer: Botim Web) and copy the number / text */
 function botimLink(){
-  if (/Android/i.test(navigator.userAgent || '')) return 'intent://#Intent;package=im.thebot.messenger;S.browser_fallback_url=' + encodeURIComponent('https://play.google.com/store/apps/details?id=im.thebot.messenger') + ';end';
+  /* no package and no fallback: if Botim does not answer the link, nothing opens (before, Chrome sent it to Play Store) */
+  if (/Android/i.test(navigator.userAgent || '')) return 'intent://#Intent;scheme=botim;end';
   if (/iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return 'botim://';
   return 'https://web.botim.me/';
 }
@@ -480,7 +481,7 @@ function suggestTpl(l){
   return 'followup';
 }
 let toastT;
-function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
+function toast(msg, ms){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms || 2600); }
 
 /* ---------- storage ---------- */
 const chains = {};
@@ -1190,7 +1191,9 @@ document.addEventListener('click', e => {
     case 'exitFocus': S.focus = null; closeSheet(); render(); break;
     case 'botimOpen': { if (id) { S.lastCall = {id, t: Date.now()}; saveSession(); }
       try { navigator.clipboard.writeText(t.dataset.v).then(() => {}, () => {}); } catch (_) {}
-      toast('Opening Botim – number copied, paste it in Botim to call or chat'); break; }
+      toast('Opening Botim – number copied, paste it in Botim to call or chat');
+      if (IS_MOBILE) setTimeout(() => { if (document.visibilityState === 'visible') toast('Botim did not open by itself. The number ' + t.dataset.v + ' is copied – open Botim from your home screen, tap Call and paste it.', 9000); }, 1800);
+      break; }
     case 'dismissAfter': S.lastCall = null; S.afterCall = null; saveSession(); render(); break;
     case 'nextLead': { S.lastCall = null; S.afterCall = null; const nx = nextLeadAfter(id);
       if (nx) { openSheet('lead', nx); toast('Next: ' + S.leads.get(nx).name); } else { closeSheet(); toast('No more leads due – all caught up'); }
