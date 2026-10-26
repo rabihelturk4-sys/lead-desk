@@ -1,4 +1,4 @@
-# Checks Bitrix for new leads every 5 minutes, even when Lead Desk is closed.
+# Checks Bitrix for new leads and sends waiting emails every 5 minutes, even when Lead Desk is closed.
 name: Bitrix new leads
 
 on:
@@ -24,12 +24,21 @@ jobs:
           node-version: 20
       - name: Install Firebase Admin
         working-directory: .github/sync
-        run: npm install --no-save --no-audit --no-fund firebase-admin@12.7.0
+        run: npm install --no-save --no-audit --no-fund firebase-admin@12.7.0 nodemailer@6.9.16
       - name: Bring in new Bitrix leads
         run: node .github/sync/bitrix-sync.mjs
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           BITRIX_WEBHOOK: ${{ secrets.BITRIX_WEBHOOK }}
+          LEADDESK_UID: ${{ secrets.LEADDESK_UID }}
+      - name: Send waiting emails
+        if: always()
+        run: node .github/sync/send-mail.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ZOHO_EMAIL: ${{ secrets.ZOHO_EMAIL }}
+          ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
+          ZOHO_SMTP_HOST: ${{ secrets.ZOHO_SMTP_HOST }}
           LEADDESK_UID: ${{ secrets.LEADDESK_UID }}
       # GitHub pauses scheduled runs after 60 days without commits; an empty commit every 45 days keeps it running.
       - name: Keep the schedule active

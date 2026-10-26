@@ -312,13 +312,14 @@ const CC = {'46':['🇸🇪','Sweden','sv'],'47':['🇳🇴','Norway','en'],'45'
 const digits = p => String(p || '').replace(/\D/g, '').replace(/^00/, '');
 function phoneInfo(p){ const d = digits(p); for (const n of [3,2,1]) { const c = CC[d.slice(0, n)]; if (c) return {flag:c[0], country:c[1], lang:c[2]}; } return {flag:'🌐', country:'', lang:'en'}; }
 
-const TPL_META = [['first','First contact'],['noanswer','Missed call'],['noanswer_late','Missed call – late there'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
+const TPL_META = [['first','First contact'],['noanswer','Missed call'],['noanswer_late','Missed call – late there'],['na_email','Auto email after No answer'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
 const TPL_LABEL = Object.fromEntries(TPL_META);
 const DEF_TPL = {
   en: {
     first: "Hi {name}, this is {me} from Dubai real estate. Thank you for your interest! Are you looking to invest or to live in Dubai? I'd love to send you the best options for you.",
     noanswer: "Hi {name}, {me} here. I just tried to call you about Dubai property. When is a good time for a quick call?",
     noanswer_late: "Hi {name}, {me} here. I just tried to call you about Dubai property. I see it is late in your country now, so I will call you tomorrow. Have a good evening!",
+    na_email: "Dear {name},\n\nI tried to call you today regarding your inquiry about property in Dubai, but I could not reach you.\n\nWhen would be a good time to connect, and how do you prefer to be contacted – phone call, WhatsApp or email?\n\n{card}Kind regards,",
     declined: "Hi {name}, {me} here. I can see you're busy right now, no problem. When would be a better time for a quick call? You can also just reply here.",
     followup: "Hi {name}, just following up on our talk. Do you have any questions I can help with? Happy to send more details.",
     offer: "Hi {name}, this week I'm working on {project} in {area}. Starting from {price} with a {plan} payment plan, handover {handover}. Would you like the brochure and floor plans?",
@@ -331,6 +332,7 @@ const DEF_TPL = {
     first: "Hej {name}, det är {me} som jobbar med fastigheter i Dubai. Tack för ditt intresse! Letar du efter en investering eller ett boende i Dubai? Jag skickar gärna de bästa alternativen för dig.",
     noanswer: "Hej {name}, {me} här. Jag försökte precis ringa dig angående fastigheter i Dubai. När passar det med ett kort samtal?",
     noanswer_late: "Hej {name}, {me} här. Jag försökte precis ringa dig angående fastigheter i Dubai. Jag ser att det är sent hos dig nu, så jag ringer dig i morgon istället. Ha en fin kväll!",
+    na_email: "Hej {name},\n\nJag försökte ringa dig i dag angående din förfrågan om fastigheter i Dubai, men nådde dig inte.\n\nNär passar det bäst att vi hörs, och hur vill du helst bli kontaktad – telefonsamtal, WhatsApp eller e-post?\n\n{card}Med vänliga hälsningar,",
     declined: "Hej {name}, {me} här. Jag ser att du är upptagen just nu, inga problem. När passar det bättre med ett kort samtal? Du kan också svara här.",
     followup: "Hej {name}, jag hör av mig efter vårt samtal. Har du några frågor? Jag skickar gärna mer information.",
     offer: "Hej {name}, den här veckan jobbar jag med {project} i {area}. Från {price} med betalplan {plan}, inflyttning {handover}. Vill du ha broschyr och planlösningar?",
@@ -343,6 +345,7 @@ const DEF_TPL = {
     first: "مرحباً {name}، معك {me} من عقارات دبي. شكراً لاهتمامك! هل تبحث عن استثمار أم سكن في دبي؟ يسعدني أن أرسل لك أفضل الخيارات المناسبة لك.",
     noanswer: "مرحباً {name}، معك {me}. حاولت الاتصال بك بخصوص عقارات دبي. متى يناسبك وقت لمكالمة قصيرة؟",
     noanswer_late: "مرحباً {name}، معك {me}. حاولت الاتصال بك بخصوص عقارات دبي. أرى أن الوقت متأخر عندك الآن، لذلك سأتصل بك غداً. مساء الخير!",
+    na_email: "عزيزي {name}،\n\nحاولت الاتصال بك اليوم بخصوص استفسارك عن العقارات في دبي، ولكن لم أتمكن من الوصول إليك.\n\nمتى يكون الوقت المناسب للتواصل، وما هي الطريقة التي تفضلها – مكالمة هاتفية أو واتساب أو بريد إلكتروني؟\n\n{card}مع أطيب التحيات،",
     declined: "مرحباً {name}، معك {me}. أرى أنك مشغول الآن، لا مشكلة. متى يناسبك وقت لمكالمة قصيرة؟ ويمكنك أيضاً الرد هنا.",
     followup: "مرحباً {name}، أتابع معك بعد حديثنا. هل لديك أي أسئلة؟ يسعدني إرسال المزيد من التفاصيل.",
     offer: "مرحباً {name}، أعمل هذا الأسبوع على مشروع {project} في {area}. الأسعار تبدأ من {price} مع خطة دفع {plan}، والتسليم {handover}. هل ترغب في الكتيّب والمخططات؟",
@@ -355,6 +358,7 @@ const DEF_TPL = {
     first: "Здравствуйте, {name}! Это {me}, недвижимость в Дубае. Спасибо за ваш интерес! Вы рассматриваете инвестицию или жильё в Дубае? С удовольствием подберу для вас лучшие варианты.",
     noanswer: "Здравствуйте, {name}! Это {me}. Не получается до вас дозвониться по поводу недвижимости в Дубае. Когда вам удобно коротко поговорить?",
     noanswer_late: "Здравствуйте, {name}! Это {me}. Пытался дозвониться вам по поводу недвижимости в Дубае. Вижу, что у вас уже поздно, поэтому позвоню завтра. Хорошего вечера!",
+    na_email: "Здравствуйте, {name}!\n\nСегодня я пытался дозвониться вам по поводу вашего запроса о недвижимости в Дубае, но не смог с вами связаться.\n\nКогда вам будет удобно поговорить и как лучше с вами связаться – звонок, WhatsApp или e-mail?\n\n{card}С уважением,",
     declined: "Здравствуйте, {name}! Это {me}. Вижу, что вы сейчас заняты, ничего страшного. Когда вам будет удобно коротко поговорить? Можно также ответить здесь.",
     followup: "Здравствуйте, {name}! Пишу после нашего разговора: остались ли у вас вопросы? С радостью пришлю больше информации.",
     offer: "Здравствуйте, {name}! На этой неделе я работаю с проектом {project} в {area}. Цены от {price}, план оплаты {plan}, сдача {handover}. Прислать вам брошюру и планировки?",
@@ -400,17 +404,19 @@ const byNext = (a, b) => (winOpen(b) - winOpen(a)) || ((a.nextAt || 0) - (b.next
 const initials = n => (n || '?').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
 const lastHist = l => (l.history || []).filter(h => h.k !== 'created').slice(-1)[0];
 const getTpl = (lang, k) => (S.cfg.templates && S.cfg.templates[lang] && S.cfg.templates[lang][k]) || DEF_TPL[lang][k];
+const CARD_LINE = {en: 'I have attached my business card so you have my details.\n\n', sv: 'Jag har bifogat mitt visitkort så att du har mina kontaktuppgifter.\n\n',
+  ar: 'أرفقت لك بطاقة العمل الخاصة بي لتكون لديك بيانات التواصل.\n\n', ru: 'Прикрепляю свою визитную карточку, чтобы у вас были мои контакты.\n\n'};
 function fill(txt, l){
   const f = S.cfg.focus || {}; const first = (l.name || '').trim().split(/\s+/)[0] || '';
   const mt = l.meetingAt ? new Date(l.meetingAt).toLocaleString(LOCALE[l.lang] || 'en-GB', {weekday:'long', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit', timeZoneName:'short'}) : '';
-  const map = {link: l.meetLink || '', name:first, me:S.cfg.myName || '', project:f.project || l.project || '', area:f.area || '', price:f.price || '', plan:f.plan || '', handover:f.handover || '', meeting:mt};
+  const map = {card: S.cfg.cardName ? CARD_LINE[l.lang] || CARD_LINE.en : '', link: l.meetLink || '', name:first, me:S.cfg.myName || '', project:f.project || l.project || '', area:f.area || '', price:f.price || '', plan:f.plan || '', handover:f.handover || '', meeting:mt};
   return txt.replace(/\{(\w+)\}/g, (m, k) => k in map ? map[k] : m).replace(/\s+([,.!?،])/g, '$1');
 }
 const DEF_SUBJ = {
-  en: {first:'Dubai property options for you', noanswer:'I tried to call you',noanswer_late:'I will call you tomorrow', declined:'A better time to talk?', followup:'Following up', offer:'{project} – new opportunity in Dubai', meeting_confirm:'Meeting confirmed: {meeting}', meeting_remind:'Reminder: our meeting {meeting}', after_meeting:'Thank you for today', reengage:'New opportunities in Dubai'},
-  sv: {first:'Fastighetsalternativ i Dubai för dig', noanswer:'Jag försökte ringa dig',noanswer_late:'Jag ringer dig i morgon', declined:'När passar det att prata?', followup:'Uppföljning', offer:'{project} – ny möjlighet i Dubai', meeting_confirm:'Möte bekräftat: {meeting}', meeting_remind:'Påminnelse: vårt möte {meeting}', after_meeting:'Tack för idag', reengage:'Nya möjligheter i Dubai'},
-  ar: {first:'خيارات عقارية في دبي لك', noanswer:'حاولت الاتصال بك',noanswer_late:'سأتصل بك غداً', declined:'متى يناسبك الحديث؟', followup:'متابعة', offer:'{project} – فرصة جديدة في دبي', meeting_confirm:'تأكيد الاجتماع: {meeting}', meeting_remind:'تذكير: اجتماعنا {meeting}', after_meeting:'شكراً على وقتك اليوم', reengage:'فرص جديدة في دبي'},
-  ru: {first:'Варианты недвижимости в Дубае для вас', noanswer:'Не получилось дозвониться',noanswer_late:'Позвоню вам завтра', declined:'Когда удобно поговорить?', followup:'Продолжение нашего разговора', offer:'{project} – новая возможность в Дубае', meeting_confirm:'Встреча подтверждена: {meeting}', meeting_remind:'Напоминание о встрече {meeting}', after_meeting:'Спасибо за встречу', reengage:'Новые возможности в Дубае'}
+  en: {first:'Dubai property options for you', noanswer:'I tried to call you',noanswer_late:'I will call you tomorrow',na_email:'Your inquiry about property in Dubai', declined:'A better time to talk?', followup:'Following up', offer:'{project} – new opportunity in Dubai', meeting_confirm:'Meeting confirmed: {meeting}', meeting_remind:'Reminder: our meeting {meeting}', after_meeting:'Thank you for today', reengage:'New opportunities in Dubai'},
+  sv: {first:'Fastighetsalternativ i Dubai för dig', noanswer:'Jag försökte ringa dig',noanswer_late:'Jag ringer dig i morgon',na_email:'Din förfrågan om fastigheter i Dubai', declined:'När passar det att prata?', followup:'Uppföljning', offer:'{project} – ny möjlighet i Dubai', meeting_confirm:'Möte bekräftat: {meeting}', meeting_remind:'Påminnelse: vårt möte {meeting}', after_meeting:'Tack för idag', reengage:'Nya möjligheter i Dubai'},
+  ar: {first:'خيارات عقارية في دبي لك', noanswer:'حاولت الاتصال بك',noanswer_late:'سأتصل بك غداً',na_email:'بخصوص استفسارك عن العقارات في دبي', declined:'متى يناسبك الحديث؟', followup:'متابعة', offer:'{project} – فرصة جديدة في دبي', meeting_confirm:'تأكيد الاجتماع: {meeting}', meeting_remind:'تذكير: اجتماعنا {meeting}', after_meeting:'شكراً على وقتك اليوم', reengage:'فرص جديدة في دبي'},
+  ru: {first:'Варианты недвижимости в Дубае для вас', noanswer:'Не получилось дозвониться',noanswer_late:'Позвоню вам завтра',na_email:'Ваш запрос о недвижимости в Дубае', declined:'Когда удобно поговорить?', followup:'Продолжение нашего разговора', offer:'{project} – новая возможность в Дубае', meeting_confirm:'Встреча подтверждена: {meeting}', meeting_remind:'Напоминание о встрече {meeting}', after_meeting:'Спасибо за встречу', reengage:'Новые возможности в Дубае'}
 };
 const CH = {wa:'WhatsApp', sms:'SMS', email:'Email', botim:'Botim'};
 const LINK_LBL = {en:'Meeting link: ', sv:'Möteslänk: ', ar:'رابط الاجتماع: ', ru:'Ссылка на встречу: '};
@@ -429,6 +435,7 @@ function mailLink(l, subj, body){
   const to = l.email || '';
   const mailto = 'mailto:' + encodeURIComponent(to).replace(/%40/g, '@') + '?subject=' + encodeURIComponent(subj || '') + '&body=' + encodeURIComponent(body || '');
   const m = mailMode();
+  if (m === 'zoho' && IS_MOBILE) return mailto;   /* phone: opens the Zoho Mail app (Zoho's web compose link fails on phones) */
   if (m === 'zoho') return 'https://' + zohoHost() + '/zm/comp.do?ct=' + encodeURIComponent(mailto);
   if (m === 'gmail') return 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to) + '&su=' + encodeURIComponent(subj || '') + '&body=' + encodeURIComponent(body || '');
   return mailto;
@@ -1012,6 +1019,11 @@ function viewMsgs(){
     <p class="hint" style="margin:0">Choose where emails open, ready to send. Saved for this device.</p>
     ${chipGroup('mailMode', MAIL_MODES, mailMode(), 'setMailMode')}
     ${mailMode() === 'zoho' ? `<div class="field"><label for="zoho_host">Your Zoho Mail address (change only if your Zoho is not mail.zoho.com, e.g. mail.zoho.eu)</label><input class="input" id="zoho_host" value="${esc(zohoHost())}"></div>` : ''}
+    ${chipGroup('autoNaMail', [['0','Off'],['1','Email the client automatically after No answer']], S.cfg.autoNaMail ? '1' : '0', 'setAutoNaMail')}
+    <div class="hint">Sent once per lead from your Zoho mailbox within about 5–15 minutes, in the lead's language, with your business card. Edit the text in Messages → "Auto email after No answer".${S.sync && S.sync.mailRun ? ` Last emails: ${S.sync.mailSent || 0} sent ${ago(S.sync.mailRun)}${S.sync.mailError ? ' – problem: ' + esc(S.sync.mailError) : ' ✓'}` : ''}</div>
+    <div class="field"><span class="lbl">Business card</span>${S.cfg.cardName ? `<div class="hint">✓ ${esc(S.cfg.cardName)} – attached to the automatic emails</div>${S.cardPreview ? `<img src="${S.cardPreview}" alt="Business card" style="max-width:100%;border-radius:8px">` : ''}` : '<div class="hint">No card yet – add a photo/image or PDF of your business card.</div>'}
+      <div class="actions"><label class="btn btn-ghost" for="card_file">${S.cfg.cardName ? 'Change card' : 'Add business card'}</label>${S.cfg.cardName ? '<button class="btn btn-ghost" data-act="cardDel">Remove</button>' : ''}</div>
+      <input type="file" id="card_file" accept="image/*,application/pdf" hidden></div>
     <div class="field"><label for="c_myemail">Your email (Zoho)</label><input class="input" id="c_myemail" type="email" data-cfg="myEmail" value="${esc(myEmail())}"></div>
     <div class="field"><label for="c_sig">Email signature</label><textarea class="input" id="c_sig" data-cfg="emailSig" placeholder="${esc(mailSig())}">${esc(S.cfg.emailSig || '')}</textarea></div>
   </div>
@@ -1235,7 +1247,18 @@ function doNoAnswer(id, ch){
   const l = S.leads.get(id); if (!l) return;
   const n = (l.noAnswer || 0) + 1;
   const stage = ['new','noanswer'].includes(l.stage) ? 'noanswer' : l.stage;
-  patchLead(id, {noAnswer: n, lastOutcome: 'noanswer', lastAt: Date.now(), nextAt: nextWindowAt(l), stage}, {k:'noanswer', txt: `No answer (${n}x)` + (ch ? ` + ${CH[ch]} sent` : '')}, {quiet: true});
+  const mailed = ch !== 'email' && queueNaMail(l);
+  patchLead(id, {noAnswer: n, lastOutcome: 'noanswer', lastAt: Date.now(), nextAt: nextWindowAt(l), stage, ...(mailed ? {naMailAt: Date.now()} : {})},
+    {k:'noanswer', txt: `No answer (${n}x)` + (ch ? ` + ${CH[ch]} sent` : '') + (mailed ? ' + email sent' : '')}, {quiet: true});
+}
+/* Email after No answer: written to the outbox and sent from your Zoho mailbox by the background service (with your business card).
+   Once per lead, only when the lead has an email and it is turned on in Settings → Email. */
+function queueNaMail(l){
+  if (!S.cfg.autoNaMail || !l.email || l.naMailAt) return false;
+  const L = l.lang || 'en', sig = mailSig();
+  const text = tplText(L, 'na_email', l).replace(/\n{3,}/g, '\n\n') + (sig ? '\n' + sig : '');
+  write('outbox/m' + Date.now() + l.id, {to: l.email, subject: fill(DEF_SUBJ[L].na_email, l), text, leadId: l.id, status: 'pending', createdAt: Date.now()}, 'set');
+  return true;
 }
 function doDeclined(id){
   const l = S.leads.get(id); if (!l) return;
@@ -1298,7 +1321,7 @@ document.addEventListener('click', e => {
       const p = {stage: k};
       if (k === 'pool' || k === 'workshop' || k === 'junk') { p.hot = false; p.nextAt = null; p.fresh = false; }
       if (k === 'later') { p.hot = false; p.nextAt = at10(30); }
-      if (k === 'noanswer') p.nextAt = nextWindowAt(l);
+      if (k === 'noanswer') { p.nextAt = nextWindowAt(l); if (queueNaMail(l)) p.naMailAt = Date.now(); }
       if (k === 'talking' && (!l.nextAt || l.nextAt < Date.now())) p.nextAt = at10(1);
       patchLead(id, p, {k:'stage', txt:'Moved to ' + STAGE[k]}, {quiet: true});
       if (S.focus && (k === 'pool' || k === 'later' || k === 'workshop' || k === 'junk')) advance('Moved to ' + STAGE[k]);
@@ -1401,6 +1424,8 @@ document.addEventListener('click', e => {
     case 'bxImportAll': bxImportAll(); break;
     case 'enablePush': enablePush(false); break;
     case 'askNotif': try { Notification.requestPermission().then(r => { toast(r === 'granted' ? 'Notifications on' : 'Notifications were not allowed – turn them on in the phone settings for this app'); renderView(); }); } catch (e) { toast('This browser cannot show notifications'); } break;
+    case 'setAutoNaMail': S.cfg.autoNaMail = t.dataset.v === '1'; saveCfg(); renderView(); toast(S.cfg.autoNaMail ? (S.cfg.cardName ? 'Automatic email on' : 'Automatic email on – add your business card below') : 'Automatic email off'); break;
+    case 'cardDel': write('config/card', null, 'del'); S.cfg.cardName = ''; S.cardPreview = ''; saveCfg(); renderView(); toast('Business card removed'); break;
     case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
     case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
       toast('Sending to Bitrix…');
@@ -1750,6 +1775,19 @@ async function importLeads(text){
   S.impMsg = `Imported ${added} lead${added === 1 ? '' : 's'}${skipped ? `, skipped ${skipped} already saved` : ''}.`;
   const box = $('#imp_text'); if (box) box.value = ''; renderView(); toast(S.impMsg);
 }
+/* Business card: an image is made smaller (JPEG, max 1400 px) so it fits in the database; a PDF must be under 600 KB */
+document.addEventListener('change', async e => { if (e.target.id !== 'card_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    let data, name = f.name || 'business-card';
+    if (f.type === 'application/pdf') { if (f.size > 600e3) { toast('That PDF is too big – use a photo or a smaller PDF (under 600 KB)'); return; }
+      data = await new Promise((ok, no) => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.onerror = no; rd.readAsDataURL(f); }); }
+    else { const img = await createImageBitmap(f); const k = Math.min(1, 1400 / Math.max(img.width, img.height)); const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      data = c.toDataURL('image/jpeg', 0.85); if (data.length > 900e3) data = c.toDataURL('image/jpeg', 0.6); name = name.replace(/\.\w+$/, '') + '.jpg'; S.cardPreview = data; }
+    if (data.length > 950e3) { toast('That file is too big – try a smaller picture'); return; }
+    write('config/card', {data, name}, 'set'); S.cfg.cardName = name; saveCfg(); renderView(); toast('Business card saved');
+  } catch (err) { toast('Could not read that file: ' + (err.message || err)); }
+});
 document.addEventListener('change', e => { if (e.target.id !== 'imp_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(importLeads); });
 document.addEventListener('toggle', e => { if (e.target.id === 'editBox') S.editOpen = e.target.open; }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.sheet) closeSheet(); else if (S.focus) { S.focus = null; render(); } } });
