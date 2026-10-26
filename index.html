@@ -263,6 +263,16 @@ const WIN_GROUPS = [
   [['1','52','55'], [[16,17.5],[19,21]], 'Americas'],
   [['61','64','65','60','852','86'], [[7,10],[12,14]], 'Asia-Pacific'],
 ];
+/* Lead's own time zone by phone country code – used to say "it is late there, I will call tomorrow" */
+const TZ = {971:'Asia/Dubai',968:'Asia/Muscat',974:'Asia/Qatar',965:'Asia/Kuwait',973:'Asia/Bahrain',966:'Asia/Riyadh',962:'Asia/Amman',961:'Asia/Beirut',964:'Asia/Baghdad',20:'Africa/Cairo',212:'Africa/Casablanca',
+  44:'Europe/London',353:'Europe/Dublin',351:'Europe/Lisbon',354:'Atlantic/Reykjavik',31:'Europe/Amsterdam',32:'Europe/Brussels',33:'Europe/Paris',34:'Europe/Madrid',39:'Europe/Rome',41:'Europe/Zurich',43:'Europe/Vienna',
+  45:'Europe/Copenhagen',46:'Europe/Stockholm',47:'Europe/Oslo',48:'Europe/Warsaw',49:'Europe/Berlin',358:'Europe/Helsinki',30:'Europe/Athens',36:'Europe/Budapest',420:'Europe/Prague',40:'Europe/Bucharest',90:'Europe/Istanbul',
+  7:'Europe/Moscow',380:'Europe/Kyiv',375:'Europe/Minsk',91:'Asia/Kolkata',92:'Asia/Karachi',94:'Asia/Colombo',880:'Asia/Dhaka',977:'Asia/Kathmandu',1:'America/New_York',52:'America/Mexico_City',55:'America/Sao_Paulo',
+  61:'Australia/Sydney',64:'Pacific/Auckland',65:'Asia/Singapore',60:'Asia/Kuala_Lumpur',852:'Asia/Hong_Kong',86:'Asia/Shanghai',27:'Africa/Johannesburg',234:'Africa/Lagos',254:'Africa/Nairobi'};
+function leadTZ(l){ const d = digits(l.phone); for (const n of [3,2,1]) if (TZ[d.slice(0, n)]) return TZ[d.slice(0, n)]; return ''; }
+function leadHour(l){ const z = leadTZ(l); if (!z) return null; try { const p = new Intl.DateTimeFormat('en-GB', {timeZone: z, hour: 'numeric', minute: 'numeric', hourCycle: 'h23'}).formatToParts(new Date()); return +p.find(x => x.type === 'hour').value + +p.find(x => x.type === 'minute').value / 60; } catch (e) { return null; } }
+const lateThere = l => { const h = leadHour(l); return h !== null && (h >= 20 || h < 7); };
+const theirTime = l => { const z = leadTZ(l); try { return z ? new Date().toLocaleTimeString('en-GB', {timeZone: z, hour: '2-digit', minute: '2-digit'}) : ''; } catch (e) { return ''; } };
 function callWindows(l){ const d = digits(l.phone); for (const n of [3,2,1]) { const g = WIN_GROUPS.find(w => w[0].includes(d.slice(0, n))); if (g) return g[1]; } return [[11,13],[16,19]]; }
 const dubaiHour = () => { const n = new Date(); return (n.getUTCHours() + 4) % 24 + n.getUTCMinutes() / 60; };
 const fmtH = h => { const hh = Math.floor(h), mm = Math.round((h - hh) * 60); const ap = hh >= 12 ? 'PM' : 'AM'; const h12 = hh % 12 || 12; return h12 + (mm ? ':' + String(mm).padStart(2, '0') : '') + ' ' + ap; };
@@ -302,12 +312,13 @@ const CC = {'46':['🇸🇪','Sweden','sv'],'47':['🇳🇴','Norway','en'],'45'
 const digits = p => String(p || '').replace(/\D/g, '').replace(/^00/, '');
 function phoneInfo(p){ const d = digits(p); for (const n of [3,2,1]) { const c = CC[d.slice(0, n)]; if (c) return {flag:c[0], country:c[1], lang:c[2]}; } return {flag:'🌐', country:'', lang:'en'}; }
 
-const TPL_META = [['first','First contact'],['noanswer','Missed call'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
+const TPL_META = [['first','First contact'],['noanswer','Missed call'],['noanswer_late','Missed call – late there'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
 const TPL_LABEL = Object.fromEntries(TPL_META);
 const DEF_TPL = {
   en: {
     first: "Hi {name}, this is {me} from Dubai real estate. Thank you for your interest! Are you looking to invest or to live in Dubai? I'd love to send you the best options for you.",
     noanswer: "Hi {name}, {me} here. I just tried to call you about Dubai property. When is a good time for a quick call?",
+    noanswer_late: "Hi {name}, {me} here. I just tried to call you about Dubai property. I see it is late in your country now, so I will call you tomorrow. Have a good evening!",
     declined: "Hi {name}, {me} here. I can see you're busy right now, no problem. When would be a better time for a quick call? You can also just reply here.",
     followup: "Hi {name}, just following up on our talk. Do you have any questions I can help with? Happy to send more details.",
     offer: "Hi {name}, this week I'm working on {project} in {area}. Starting from {price} with a {plan} payment plan, handover {handover}. Would you like the brochure and floor plans?",
@@ -319,6 +330,7 @@ const DEF_TPL = {
   sv: {
     first: "Hej {name}, det är {me} som jobbar med fastigheter i Dubai. Tack för ditt intresse! Letar du efter en investering eller ett boende i Dubai? Jag skickar gärna de bästa alternativen för dig.",
     noanswer: "Hej {name}, {me} här. Jag försökte precis ringa dig angående fastigheter i Dubai. När passar det med ett kort samtal?",
+    noanswer_late: "Hej {name}, {me} här. Jag försökte precis ringa dig angående fastigheter i Dubai. Jag ser att det är sent hos dig nu, så jag ringer dig i morgon istället. Ha en fin kväll!",
     declined: "Hej {name}, {me} här. Jag ser att du är upptagen just nu, inga problem. När passar det bättre med ett kort samtal? Du kan också svara här.",
     followup: "Hej {name}, jag hör av mig efter vårt samtal. Har du några frågor? Jag skickar gärna mer information.",
     offer: "Hej {name}, den här veckan jobbar jag med {project} i {area}. Från {price} med betalplan {plan}, inflyttning {handover}. Vill du ha broschyr och planlösningar?",
@@ -330,6 +342,7 @@ const DEF_TPL = {
   ar: {
     first: "مرحباً {name}، معك {me} من عقارات دبي. شكراً لاهتمامك! هل تبحث عن استثمار أم سكن في دبي؟ يسعدني أن أرسل لك أفضل الخيارات المناسبة لك.",
     noanswer: "مرحباً {name}، معك {me}. حاولت الاتصال بك بخصوص عقارات دبي. متى يناسبك وقت لمكالمة قصيرة؟",
+    noanswer_late: "مرحباً {name}، معك {me}. حاولت الاتصال بك بخصوص عقارات دبي. أرى أن الوقت متأخر عندك الآن، لذلك سأتصل بك غداً. مساء الخير!",
     declined: "مرحباً {name}، معك {me}. أرى أنك مشغول الآن، لا مشكلة. متى يناسبك وقت لمكالمة قصيرة؟ ويمكنك أيضاً الرد هنا.",
     followup: "مرحباً {name}، أتابع معك بعد حديثنا. هل لديك أي أسئلة؟ يسعدني إرسال المزيد من التفاصيل.",
     offer: "مرحباً {name}، أعمل هذا الأسبوع على مشروع {project} في {area}. الأسعار تبدأ من {price} مع خطة دفع {plan}، والتسليم {handover}. هل ترغب في الكتيّب والمخططات؟",
@@ -341,6 +354,7 @@ const DEF_TPL = {
   ru: {
     first: "Здравствуйте, {name}! Это {me}, недвижимость в Дубае. Спасибо за ваш интерес! Вы рассматриваете инвестицию или жильё в Дубае? С удовольствием подберу для вас лучшие варианты.",
     noanswer: "Здравствуйте, {name}! Это {me}. Не получается до вас дозвониться по поводу недвижимости в Дубае. Когда вам удобно коротко поговорить?",
+    noanswer_late: "Здравствуйте, {name}! Это {me}. Пытался дозвониться вам по поводу недвижимости в Дубае. Вижу, что у вас уже поздно, поэтому позвоню завтра. Хорошего вечера!",
     declined: "Здравствуйте, {name}! Это {me}. Вижу, что вы сейчас заняты, ничего страшного. Когда вам будет удобно коротко поговорить? Можно также ответить здесь.",
     followup: "Здравствуйте, {name}! Пишу после нашего разговора: остались ли у вас вопросы? С радостью пришлю больше информации.",
     offer: "Здравствуйте, {name}! На этой неделе я работаю с проектом {project} в {area}. Цены от {price}, план оплаты {plan}, сдача {handover}. Прислать вам брошюру и планировки?",
@@ -393,10 +407,10 @@ function fill(txt, l){
   return txt.replace(/\{(\w+)\}/g, (m, k) => k in map ? map[k] : m).replace(/\s+([,.!?،])/g, '$1');
 }
 const DEF_SUBJ = {
-  en: {first:'Dubai property options for you', noanswer:'I tried to call you', declined:'A better time to talk?', followup:'Following up', offer:'{project} – new opportunity in Dubai', meeting_confirm:'Meeting confirmed: {meeting}', meeting_remind:'Reminder: our meeting {meeting}', after_meeting:'Thank you for today', reengage:'New opportunities in Dubai'},
-  sv: {first:'Fastighetsalternativ i Dubai för dig', noanswer:'Jag försökte ringa dig', declined:'När passar det att prata?', followup:'Uppföljning', offer:'{project} – ny möjlighet i Dubai', meeting_confirm:'Möte bekräftat: {meeting}', meeting_remind:'Påminnelse: vårt möte {meeting}', after_meeting:'Tack för idag', reengage:'Nya möjligheter i Dubai'},
-  ar: {first:'خيارات عقارية في دبي لك', noanswer:'حاولت الاتصال بك', declined:'متى يناسبك الحديث؟', followup:'متابعة', offer:'{project} – فرصة جديدة في دبي', meeting_confirm:'تأكيد الاجتماع: {meeting}', meeting_remind:'تذكير: اجتماعنا {meeting}', after_meeting:'شكراً على وقتك اليوم', reengage:'فرص جديدة في دبي'},
-  ru: {first:'Варианты недвижимости в Дубае для вас', noanswer:'Не получилось дозвониться', declined:'Когда удобно поговорить?', followup:'Продолжение нашего разговора', offer:'{project} – новая возможность в Дубае', meeting_confirm:'Встреча подтверждена: {meeting}', meeting_remind:'Напоминание о встрече {meeting}', after_meeting:'Спасибо за встречу', reengage:'Новые возможности в Дубае'}
+  en: {first:'Dubai property options for you', noanswer:'I tried to call you',noanswer_late:'I will call you tomorrow', declined:'A better time to talk?', followup:'Following up', offer:'{project} – new opportunity in Dubai', meeting_confirm:'Meeting confirmed: {meeting}', meeting_remind:'Reminder: our meeting {meeting}', after_meeting:'Thank you for today', reengage:'New opportunities in Dubai'},
+  sv: {first:'Fastighetsalternativ i Dubai för dig', noanswer:'Jag försökte ringa dig',noanswer_late:'Jag ringer dig i morgon', declined:'När passar det att prata?', followup:'Uppföljning', offer:'{project} – ny möjlighet i Dubai', meeting_confirm:'Möte bekräftat: {meeting}', meeting_remind:'Påminnelse: vårt möte {meeting}', after_meeting:'Tack för idag', reengage:'Nya möjligheter i Dubai'},
+  ar: {first:'خيارات عقارية في دبي لك', noanswer:'حاولت الاتصال بك',noanswer_late:'سأتصل بك غداً', declined:'متى يناسبك الحديث؟', followup:'متابعة', offer:'{project} – فرصة جديدة في دبي', meeting_confirm:'تأكيد الاجتماع: {meeting}', meeting_remind:'تذكير: اجتماعنا {meeting}', after_meeting:'شكراً على وقتك اليوم', reengage:'فرص جديدة في دبي'},
+  ru: {first:'Варианты недвижимости в Дубае для вас', noanswer:'Не получилось дозвониться',noanswer_late:'Позвоню вам завтра', declined:'Когда удобно поговорить?', followup:'Продолжение нашего разговора', offer:'{project} – новая возможность в Дубае', meeting_confirm:'Встреча подтверждена: {meeting}', meeting_remind:'Напоминание о встрече {meeting}', after_meeting:'Спасибо за встречу', reengage:'Новые возможности в Дубае'}
 };
 const CH = {wa:'WhatsApp', sms:'SMS', email:'Email', botim:'Botim'};
 const LINK_LBL = {en:'Meeting link: ', sv:'Möteslänk: ', ar:'رابط الاجتماع: ', ru:'Ссылка на встречу: '};
@@ -432,6 +446,7 @@ const botimTarget = () => IS_MOBILE ? '' : 'target="_blank" rel="noopener"';
 function msgLink(ch, l, k){
   const L = l.lang || 'en';
   if (ch === 'botim') return botimLink();
+  if (k === 'noanswer' && lateThere(l)) k = 'noanswer_late';
   if (k === 'own') return ch === 'sms' ? smsLink(l) : ch === 'email' ? mailLink(l, '', mailSig() ? '\n\n' + mailSig() : '') : waLink(l);
   const txt = tplText(L, k, l);
   if (ch === 'sms') return smsLink(l, txt);
@@ -1000,7 +1015,8 @@ function outcomeBar(l){
   const after = S.afterCall === l.id && S.lastCall ? `<div class="aftercall"><b>Call with ${esc(l.name)} ended?</b> Tap how it went below${S.focus ? ' – the next lead opens by itself' : ''}.
     <div class="actions">${S.focus ? `<button class="btn btn-ghost" data-act="skip">Skip, next lead</button>` : `<button class="btn btn-ghost" data-act="nextLead" data-id="${l.id}">Next lead without logging</button>`}<button class="btn btn-ghost" data-act="dismissAfter">Close</button></div></div>` : '';
   const nextBtn = !S.focus ? `<button class="btn btn-ghost" data-act="nextLead" data-id="${l.id}">Next lead →</button>` : '';
-  return `${after}<div class="lbl">How did it go?</div><div class="outcomes">
+  const tt = theirTime(l), late = lateThere(l);
+  return `${after}<div class="lbl">How did it go?</div>${tt ? `<div class="hint">Their time now ${tt}${late ? ' – late there: the No answer message says you will call tomorrow' : ''}</div>` : ''}<div class="outcomes">
     <button class="obtn na" data-act="noans" data-id="${l.id}">No answer</button>
     <a class="obtn nam" href="${msgLink('wa', l, 'noanswer')}" ${waTarget()} data-act="noansMsg" data-ch="wa" data-id="${l.id}">No answer + WhatsApp</a>
     <a class="obtn ok" href="${msgLink('sms', l, 'noanswer')}" ${EXT} data-act="noansMsg" data-ch="sms" data-id="${l.id}">No answer + SMS</a>
