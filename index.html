@@ -468,6 +468,82 @@ function write(path, data, mode){
     .then(() => mode === 'set' ? ref.set(data) : mode === 'del' ? ref.delete() : ref.update(data))
     .catch(e => toast('Save failed: ' + (e && (e.message || e.code))));
 }
+
+/* ---------- Bitrix24: send updates through the user's own inbound webhook (link kept on this device only) ----------
+   Stage moves → crm.lead.update STATUS_ID (by the stage matching chosen in Messages → Bitrix24),
+   logged results and updates → crm.timeline.comment.add, new leads → found by phone or created. */
+const bxHook = () => { try { return (localStorage.getItem('bxHook') || '').trim().replace(/\/?$/, '/'); } catch (e) { return ''; } };
+const bxValid = h => /^https:\/\/[^/]+\/rest\/\d+\/[^/]+\/$/.test(h);
+const bxOn = () => { try { return localStorage.getItem('bxOn') === '1' && bxValid(bxHook()); } catch (e) { return false; } };
+const bxPortal = () => { const m = bxHook().match(/^https:\/\/[^/]+/); return m ? m[0] : ''; };
+const bxId = l => l && (l.bxId || l.leadNo) ? String(l.bxId || l.leadNo) : '';
+/* Bitrix reads form fields like fields[PHONE][0][VALUE]=… (a simple request, no pre-check by the browser) */
+function bxForm(obj, pre = '', out = []){
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = pre ? pre + '[' + k + ']' : k;
+    if (typeof v === 'object') bxForm(v, key, out); else out.push(encodeURIComponent(key) + '=' + encodeURIComponent(v));
+  }
+  return out.join('&');
+}
+async function bxCall(method, params = {}, hook = bxHook()){
+  let r;
+  try { r = await fetch(hook + method + '.json', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: bxForm(params)}); }
+  catch (e) { throw {code: 'net', message: 'Bitrix could not be reached from this browser.'}; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw {code: j.error || ('http' + r.status), message: j.error_description || ('Bitrix answered ' + r.status)};
+  return j.result;
+}
+/* Queue kept on the device, so nothing is lost when the phone is offline; tried again when the app comes back */
+let bxQ = []; try { bxQ = JSON.parse(localStorage.getItem('bxQueue') || '[]'); } catch (e) {}
+const bxSave = () => { try { localStorage.setItem('bxQueue', JSON.stringify(bxQ)); } catch (e) {} };
+let bxBusy = false;
+async function bxRun(){
+  if (bxBusy || !bxQ.length || !bxValid(bxHook())) return; bxBusy = true;
+  while (bxQ.length) {
+    const job = bxQ[0];
+    try {
+      if (job.lead && !job.params.id && !(job.params.fields && job.params.fields.ENTITY_ID)) {
+        const l = S.leads.get(job.lead); const id = l ? await bxEnsure(l) : '';
+        if (!id) throw {code: 'noid', message: 'The lead could not be found or created in Bitrix.'};
+        if (job.method === 'crm.timeline.comment.add') job.params.fields.ENTITY_ID = id; else job.params.id = id;
+      }
+      await bxCall(job.method, job.params); bxQ.shift(); bxSave(); S.bxErr = '';
+    } catch (e) {
+      if (e.code === 'net' || /^http5/.test(e.code)) { S.bxErr = e.message; break; }   /* offline: keep and retry later */
+      S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxQ.shift(); bxSave(); toast('Bitrix: ' + S.bxErr);
+    }
+  }
+  bxBusy = false;
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') bxRun(); });
+window.addEventListener('online', () => bxRun());
+function bxQueue(l, method, params, what){ bxQ.push({lead: l.id, method, params, what, t: Date.now()}); bxSave(); bxRun(); }
+const bxStamp = t => { const d = new Date(t), z = n => String(n).padStart(2, '0'); return `${z(d.getDate())}-${z(d.getMonth() + 1)}-${d.getFullYear()} ${z(d.getHours())},${z(d.getMinutes())}`; };
+/* Find this lead in Bitrix (saved id, then phone, then email) or create it; the id is saved on the lead */
+async function bxEnsure(l){
+  if (bxId(l)) return bxId(l);
+  let id = '';
+  const found = async (type, v) => { if (!v) return ''; const r = await bxCall('crm.duplicate.findbycomm', {entity_type: 'LEAD', type, values: [v]}); return (r && r.LEAD && r.LEAD[0]) ? String(r.LEAD[0]) : ''; };
+  id = await found('PHONE', l.phone ? '+' + digits(l.phone) : '') || await found('EMAIL', l.email);
+  if (!id) {
+    const st = (S.cfg.bxMap || {})[l.stage];
+    id = String(await bxCall('crm.lead.add', {fields: {TITLE: (l.name || 'Lead') + ' – Lead Desk', NAME: l.name || '', STATUS_ID: st || undefined,
+      PHONE: l.phone ? [{VALUE: '+' + digits(l.phone), VALUE_TYPE: 'MOBILE'}] : undefined, EMAIL: l.email ? [{VALUE: l.email, VALUE_TYPE: 'WORK'}] : undefined,
+      COMMENTS: [l.note, l.project && 'Interested in: ' + l.project, l.budget && 'Budget: ' + l.budget].filter(Boolean).join('\n') || undefined}}));
+  }
+  if (id) { const cur = S.leads.get(l.id); if (cur) { S.leads.set(l.id, {...cur, bxId: id}); write('leads/' + l.id, {bxId: id}); } }
+  return id;
+}
+const BX_SKIP = new Set(['created', 'note']);
+/* Called for every saved change: stage moves and logged results go to Bitrix when automatic updates are on */
+function bxAfterPatch(l, p, hist, before){
+  if (!bxOn() || !l) return;
+  const map = S.cfg.bxMap || {};
+  if (p.stage && p.stage !== (before && before.stage) && map[p.stage]) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage]}}, 'stage ' + STAGE[p.stage]);
+  if (hist && !BX_SKIP.has(hist.k) && hist.txt) bxQueue(l, 'crm.timeline.comment.add', {fields: {ENTITY_ID: bxId(l) || undefined, ENTITY_TYPE: 'lead', COMMENT: bxStamp(Date.now()) + '\n' + hist.txt}}, 'comment');
+}
+
 function patchLead(id, patch, hist, opts = {}){
   const l = S.leads.get(id); if (!l) return;
   const p = {...patch};
@@ -475,6 +551,7 @@ function patchLead(id, patch, hist, opts = {}){
   if (hist && S.lastCall && S.lastCall.id === id && hist.k !== 'note') { S.lastCall = null; S.afterCall = null; saveSession(); }
   S.leads.set(id, {...l, ...p});
   write('leads/' + id, p);
+  try { bxAfterPatch({...l, ...p}, patch, hist, l); } catch (e) {}
   if (!opts.quiet) render();
 }
 let cfgT;
@@ -716,6 +793,17 @@ function viewMsgs(){
     </div>
   </div>
   <div class="card form">
+    <h3>Bitrix24</h3>
+    <p class="hint" style="margin:0">Paste your Bitrix inbound webhook link (Developer resources → Other → Inbound webhook, with CRM access). It is saved on this device only – add it on your phone and your laptop.</p>
+    <input class="input" id="bx_hook" type="password" autocomplete="off" placeholder="https://yourcompany.bitrix24.com/rest/12/abc123/" value="${esc(bxHook() === '/' ? '' : bxHook())}">
+    <button class="btn btn-ghost" data-act="bxTest">Test connection and load my Bitrix stages</button>
+    <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
+    ${S.bxStatuses ? `<div class="lbl">Match the stages</div><p class="hint" style="margin:0">When you move a lead in Lead Desk, Bitrix moves it to the stage you pick here. "Don't change" leaves Bitrix as it is.</p>
+      ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost'].map(k => `<div class="field"><label for="bxm_${k}">${esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
+    ${bxValid(bxHook()) ? chipGroup('bxOn', [['0','Off – test first'],['1','Update Bitrix automatically']], bxOn() ? '1' : '0', 'setBxOn') : ''}
+    ${bxQ.length ? `<div class="hint">${bxQ.length} update${bxQ.length > 1 ? 's' : ''} waiting to be sent to Bitrix.</div>` : ''}${S.bxErr ? `<div class="banner">Last Bitrix problem: ${esc(S.bxErr)}</div>` : ''}
+  </div>
+  <div class="card form">
     <h3>AI picture reading</h3>
     <p class="hint" style="margin:0">Paste an AI key to read photos of screens, handwriting and Arabic correctly. A Google Gemini key (free) starts with "AIza", get one at aistudio.google.com/apikey. A Claude key starts with "sk-ant-". The key is saved on this device only – add it on your phone and your laptop.</p>
     <input class="input" id="ai_key" type="password" autocomplete="off" placeholder="Paste your key here" value="${esc(aiKey())}">
@@ -772,6 +860,8 @@ function briefing(l){
     <div class="bline"><b>Best time to call:</b> ${esc(winText(l))} Dubai · ${winOpen(l) ? '<b style="color:var(--good)">open now</b>' : esc(winNext(l))}</div>
     ${l.note ? `<div class="bline"><b>Note:</b> ${esc(l.note)}</div>` : ''}
     ${recent.length > 1 ? `<div class="hint">${recent.slice(1).map(h => esc(ago(h.t) + ': ' + h.txt)).join('<br>')}</div>` : ''}
+    ${bxValid(bxHook()) ? `<div class="bline"><b>Bitrix:</b> ${bxId(l) ? `<a class="linkbtn" href="${esc(bxPortal())}/crm/lead/details/${esc(bxId(l))}/" target="_blank" rel="noopener">Lead #${esc(bxId(l))} – open in Bitrix</a>` : 'not linked yet'}
+      ${!bxOn() ? ` · <button class="linkbtn" data-act="bxSendOne" data-id="${l.id}">Send this lead's last update to Bitrix (test)</button>` : ''}</div>` : ''}
     ${l.crm ? `<details class="crm"><summary>Bitrix notes${l.leadNo ? ' · Lead #' + esc(l.leadNo) : ''}${l.campaign ? ' · ' + esc(l.campaign) : ''}</summary><div class="crmtext">${esc(l.crm)}</div></details>` : ''}
     <div class="bline"><b>Next follow-up:</b> ${l.nextAt ? `<span style="color:${l.nextAt < n ? 'var(--hot)' : 'inherit'}">${esc(when(l.nextAt))}</span>` : 'Not set'}</div>
   </div>`;
@@ -1095,6 +1185,26 @@ document.addEventListener('click', e => {
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], {type: 'application/json'})); a.download = 'lead-desk-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click(); a.remove(); toast('Backup downloaded'); break; }
     case 'importText': importLeads($('#imp_text').value); break;
+    case 'bxTest': { const h = ($('#bx_hook').value || '').trim().replace(/\/?$/, '/');
+      if (!bxValid(h)) { $('#bx_res').innerHTML = '<div class="banner">That does not look like a Bitrix webhook link. It looks like https://yourcompany.bitrix24.com/rest/12/abc123/</div>'; break; }
+      try { localStorage.setItem('bxHook', h); } catch (e) {}
+      $('#bx_res').innerHTML = '<div class="hint">Connecting to Bitrix…</div>';
+      bxCall('crm.status.list', {order: {SORT: 'ASC'}, filter: {ENTITY_ID: 'STATUS'}}, h).then(list => {
+        S.bxStatuses = list || [];
+        const map = {...(S.cfg.bxMap || {})}; const norm = x => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
+        const guess = {new: ['new', 'newlead', 'unprocessed'], noanswer: ['noanswer', 'notanswer'], talking: ['pipeline', 'inprogress', 'processing'], workshop: ['workshop'], pool: ['pool'], later: ['buylater', 'later'], closed: ['converted', 'closed', 'qualified'], lost: ['junk', 'lost', 'notinterested']};
+        for (const [k, names] of Object.entries(guess)) if (!map[k]) { const hit = S.bxStatuses.find(st => names.includes(norm(st.NAME))); if (hit) map[k] = hit.STATUS_ID; }
+        S.cfg.bxMap = map; saveCfg();
+        S.bxMsg = `<div class="meetb">Connected ✓ – found ${S.bxStatuses.length} lead stages in your Bitrix. Check the matching below.</div>`; renderView();
+      }, e => { S.bxMsg = `<div class="banner">${esc(e.code === 'net' ? 'Bitrix did not answer this browser. Check the link, or your Bitrix blocks access from other websites – tell Claude.' : (e.message || e.code))}</div>`; renderView(); });
+      break; }
+    case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
+    case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
+      toast('Sending to Bitrix…');
+      bxEnsure(l).then(bid => bxCall('crm.timeline.comment.add', {fields: {ENTITY_ID: bid, ENTITY_TYPE: 'lead', COMMENT: (last ? bxStamp(last.t) + '\n' + last.txt : 'Connected from Lead Desk') + '\n(sent from Lead Desk)'}})
+        .then(() => { toast('Sent ✓ – check lead #' + bid + ' in Bitrix'); render(); }))
+        .catch(e => toast('Bitrix: ' + (e.message || e.code)));
+      break; }
     case 'setMailMode': try { localStorage.setItem('mailMode', t.dataset.v); } catch (e) {} renderView(); toast('Emails open in ' + t.textContent); break;
     case 'setWaMode': try { localStorage.setItem('waMode', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === 'app' ? 'WhatsApp opens in the app' : 'WhatsApp opens through wa.me'); break;
     case 'parsePaste': { const txt = $('#paste_box').value; S.pasteText = txt; S.paste = parsePaste(txt);
@@ -1117,6 +1227,7 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; renderLeadList(); return; }
   if (t.id === 'paste_box') { S.pasteText = t.value; return; }
+  if (t.id === 'bx_hook') { try { localStorage.setItem('bxHook', t.value.trim()); } catch (e) {} return; }
   if (t.id === 'zoho_host') { try { localStorage.setItem('zohoHost', t.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') || 'mail.zoho.com'); } catch (e) {} return; }
   if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {}
     const st = $('#ai_state'); if (st) st.textContent = aiProvider(k) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(k) === 'claude' ? '✓ Claude key saved – photos are read with AI' : k ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone.'; return; }
@@ -1143,6 +1254,7 @@ document.addEventListener('change', e => {
     if (S.sheet && S.sheet.type === 'wa') renderSheet();
     return; }
   if (t.dataset.cfg) { const [a, b] = t.dataset.cfg.split('.'); if (b) { S.cfg[a] = {...(S.cfg[a] || {}), [b]: t.value.trim()}; } else S.cfg[a] = t.value.trim(); saveCfg(); toast('Saved'); return; }
+  if (t.dataset.bxmap) { S.cfg.bxMap = {...(S.cfg.bxMap || {}), [t.dataset.bxmap]: t.value}; saveCfg(); toast('Saved'); return; }
   if (t.dataset.tpl) { const L = S.tplLang; S.cfg.templates = S.cfg.templates || {}; S.cfg.templates[L] = {...(S.cfg.templates[L] || {}), [t.dataset.tpl]: t.value}; saveCfg(); toast('Template saved'); return; }
   if (t.id === 'meet_dt') { S.form.dt = t.value; S.form.quick = null; }
   if (t.id === 'meet_email') S.form.email = t.value.trim();
@@ -1310,6 +1422,7 @@ function applyRecord(r, stage = S.pasteStage){
   const id = 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const lead = newLeadDoc(r); Object.assign(lead, stagePatch(lead, stage, r));
   S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set');
+  if (bxOn()) bxEnsure({...lead, id}).catch(e => toast('Bitrix: ' + (e.message || e.code)));
   return {kind: 'new', id, name: lead.name};
 }
 function pasteResult(){
@@ -1478,6 +1591,7 @@ document.addEventListener('toggle', e => { if (e.target.id === 'editBox') S.edit
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.sheet) closeSheet(); else if (S.focus) { S.focus = null; render(); } } });
 render();
 startApp();
+setTimeout(bxRun, 3000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 
