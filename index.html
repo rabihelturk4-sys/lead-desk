@@ -109,6 +109,7 @@ h2.sec small{color:var(--muted);font-family:var(--f-body);font-weight:500;font-s
 .updbox{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
 .updbox textarea.input{min-height:70px}
 .movebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn.mic.on{background:#c62828;color:#fff;border-color:#c62828}
 .chip.wa.on{background:var(--wa);border-color:var(--wa);color:#fff}
 .cbtn.off{background:var(--surface2);color:var(--muted)}
 .pill.s-later{background:var(--surface2);color:var(--muted);border:1px dashed var(--line)}
@@ -404,6 +405,7 @@ const isHot = l => !!l.hot || ['hot','meeting','nego'].includes(l.stage);
 function atRisk(l){ if (!isOpen(l) || !isHot(l)) return false; const n = Date.now(); return !l.nextAt || l.nextAt < n || !l.lastAt || l.lastAt < n - 2*D; }
 const isDue = l => !!l.nextAt && l.nextAt <= endToday() && l.stage !== 'closed';
 const isNew = l => l.stage === 'new' && !l.lastAt;
+const isForgotten = l => ['talking','hot','nego','meeting'].includes(l.stage) && (l.lastAt || l.createdAt || 0) < Date.now() - 14*D && !(l.nextAt && l.nextAt > Date.now());
 const byNext = (a, b) => (winOpen(b) - winOpen(a)) || ((a.nextAt || 0) - (b.nextAt || 0));
 const initials = n => (n || '?').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
 const lastHist = l => (l.history || []).filter(h => h.k !== 'created').slice(-1)[0];
@@ -807,7 +809,7 @@ function render(){
   tabBadge();
   if (!typingIn($('#view'))) renderView(); else if (S.tab === 'leads') renderLeadList();
   if (!typingIn($('#focus'))) renderFocus();
-  if (S.sheet && S.sheet.type === 'lead' && !typingIn($('#sheet'))) renderSheet();
+  if (S.sheet && S.sheet.type === 'lead' && !typingIn($('#sheet')) && !S.rec) renderSheet();
   saveSession();
 }
 /* ---------- coming back after a call ----------
@@ -820,6 +822,8 @@ function saveSession(){
 let restored = false;
 function restoreSession(){
   if (restored) return; restored = true;
+  const want = new URLSearchParams(location.search).get('lead');                 /* opened from a phone alert */
+  if (want) { try { history.replaceState(null, '', location.pathname); } catch (e) {} if (S.leads.has(want)) { openSheet('lead', want); return; } }
   let ss = null; try { ss = JSON.parse(localStorage.getItem('ld_session') || 'null'); } catch (e) {}
   if (!ss) return;
   if (ss.focus && Array.isArray(ss.focus.q) && ss.focus.q.some(id => S.leads.has(id))) S.focus = ss.focus;
@@ -863,6 +867,7 @@ function buildQueue(){
   push(all.filter(l => isDue(l) && isHot(l)).sort(byNext));
   push(all.filter(isNew).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
   push(all.filter(isDue).sort(byNext));
+  push(all.filter(isForgotten));
   return q;
 }
 function renderView(){
@@ -883,6 +888,7 @@ function viewToday(){
   const laterBack = all.filter(l => l.stage === 'later' && isDue(l)).sort(byNext);
   const due = all.filter(l => isDue(l) && !atRisk(l) && !isNew(l) && l.stage !== 'later').sort(byNext);
   const nowList = [...risk, ...due, ...neu].filter(l => winOpen(l) && isOpen(l));
+  const forgot = all.filter(isForgotten).sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0));
   const dh = dubaiHour();
   const q = buildQueue(); const f = S.cfg.focus || {};
   const d = new Date().toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'});
@@ -894,7 +900,7 @@ function viewToday(){
       <div class="stat"><b>${due.length}</b><span>Follow-ups</span></div>
       <div class="stat"><b>${neu.length}</b><span>New</span></div>
     </div>
-    <button class="btn btn-primary btn-big" data-act="startFocus" ${q.length ? '' : 'disabled'}>${q.length ? `Start calling · ${q.length} lead${q.length > 1 ? 's' : ''}` : 'All caught up for today'}</button>
+    <button class="btn btn-primary btn-big" data-act="startFocus" ${q.length ? '' : 'disabled'}>${q.length ? `Start my day · ${q.length} lead${q.length > 1 ? 's' : ''} to call` : 'All caught up for today'}</button>
     <div class="focus-line">${f.project ? `This week's project: <b>${esc(f.project)}</b>${f.area ? ' in ' + esc(f.area) : ''}` : `Set this week's project in <b>Messages</b> so your WhatsApp texts are ready.`}</div>
   </section>
   ${fresh.length ? `<section><h2 class="sec newsec"><span class="dot"></span>New leads from Bitrix – call first <small>${fresh.length}</small></h2><div class="list">${fresh.map(row).join('')}</div></section>` : ''}
@@ -903,6 +909,7 @@ function viewToday(){
   ${section('meet', 'Meetings, next 3 days', meets.map(l => ({...l, nextAt: l.meetingAt})), '')}
   ${section('due', 'Follow-ups due today', due, all.length ? 'No follow-ups left for today.' : '')}
   ${section('new', 'New leads, not contacted', neu, '')}
+  ${section('hot', 'Forgotten – no contact for 14+ days', forgot, '')}
   ${section('due', 'Buy later – time to contact again', laterBack, '')}
   ${all.length ? '' : `<div class="empty">No leads yet. Tap <b>Add lead</b> below to add your first one. It takes about 10 seconds.</div>`}`;
 }
@@ -975,6 +982,7 @@ function viewMsgs(){
   return `<div class="card form">
     <h3>This week's focus</h3>
     <p class="hint" style="margin:0">Your WhatsApp messages fill these in for you. Change them when you switch project.</p>
+    ${HAS_VOICE ? `<div class="field"><span class="lbl">Speak comments in</span>${chipGroup('voice', VOICE_LANGS, S.cfg.voiceLang || 'en-US', 'setVoice')}</div>` : ''}
     <div class="field"><label for="c_me">Your name in messages</label><input class="input" id="c_me" data-cfg="myName" value="${esc(S.cfg.myName || '')}" placeholder="e.g. Rabih"></div>
     <div class="field"><label for="c_project">Project</label><input class="input" id="c_project" data-cfg="focus.project" value="${esc(f.project || '')}" placeholder="e.g. Emaar Creek Beach"></div>
     <div class="row2">
@@ -1109,6 +1117,20 @@ function contactBar(l){
   <div class="num">+${esc(d)} <button data-act="copy" data-v="+${esc(d)}">Copy number</button></div>
   ${l.email ? `<div class="num">${esc(l.email)} <button data-act="copy" data-v="${esc(l.email)}">Copy email</button></div>` : ''}`;
 }
+/* Speak a comment instead of typing it (phone/computer speech recognition); language set in Settings */
+const HAS_VOICE = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+const VOICE_LANGS = [['en-US','English'],['sv-SE','Svenska'],['ar-AE','العربية'],['ru-RU','Русский']];
+function dictate(btn, id){
+  const R = window.SpeechRecognition || window.webkitSpeechRecognition, box = document.getElementById('upd_' + id); if (!R || !box) return;
+  if (S.rec) { S.rec.stop(); return; }
+  const rec = new R(); rec.lang = S.cfg.voiceLang || 'en-US'; rec.interimResults = true; rec.continuous = true;
+  const base = box.value.trim() ? box.value.trim() + ' ' : '';
+  S.rec = rec; btn.classList.add('on'); btn.textContent = '● Listening – tap to stop';
+  rec.onresult = e => { box.value = base + [...e.results].map(x => x[0].transcript).join(' ').replace(/\s+/g, ' ').trim(); };
+  rec.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Microphone: ' + (e.error === 'not-allowed' ? 'allow the microphone for Lead Desk' : e.error)); };
+  rec.onend = () => { S.rec = null; btn.classList.remove('on'); btn.textContent = '🎤 Speak comment'; if (box.value.trim()) toast('Check the text, then tap Save update'); };
+  try { rec.start(); } catch (e) { S.rec = null; toast('Microphone could not start'); }
+}
 function outcomeBar(l){
   const after = S.afterCall === l.id && S.lastCall ? `<div class="aftercall"><b>Call with ${esc(l.name)} ended?</b> Tap how it went below${S.focus ? ' – the next lead opens by itself' : ''}.
     <div class="actions">${S.focus ? `<button class="btn btn-ghost" data-act="skip">Skip, next lead</button>` : `<button class="btn btn-ghost" data-act="nextLead" data-id="${l.id}">Next lead without logging</button>`}<button class="btn btn-ghost" data-act="dismissAfter">Close</button></div></div>` : '';
@@ -1119,7 +1141,7 @@ function outcomeBar(l){
     <div class="lbl">Add update</div>
     <div class="chips">${QUICK_UPD.map(q => `<button class="chip" data-act="quickUpd" data-id="${l.id}" data-v="${esc(q)}">${esc(q)}</button>`).join('')}</div>
     <textarea class="input" id="upd_${l.id}" placeholder="Write a comment (optional) – e.g. what they replied"></textarea>
-    <button class="btn btn-primary" data-act="saveUpd" data-id="${l.id}">Save update</button>
+    <div class="actions">${HAS_VOICE ? `<button class="btn btn-ghost mic" data-act="dictate" data-id="${l.id}">🎤 Speak comment</button>` : ''}<button class="btn btn-primary" data-act="saveUpd" data-id="${l.id}">Save update</button></div>
     <div class="hint">Tap a quick update to save it at once. Anything you typed in the box is saved with it.</div>
   </div>
   <div class="lbl">How did it go?</div>${tt ? `<div class="hint">Their time now ${tt}${late ? ' – late there: the No answer message says you will call tomorrow' : ''}</div>` : ''}<div class="outcomes">
@@ -1162,13 +1184,25 @@ function renderFocus(){
 
 /* ---------- sheets ---------- */
 function openSheet(type, id, extra = {}){ if (S.sheet && S.sheet.id !== id) setTimeout(bxRun, 0); S.sheet = {type, id, ...extra}; S.form = {}; S.confirmDel = false; if (type === 'lead') S.editOpen = false; renderSheet(); $('#sheetWrap').hidden = false; $('#sheet').scrollTo(0,0); }
+/* No active lead without a next step: closing a Pipeline / HOT / Meeting / Negotiation lead with no future follow-up asks for one */
+const needsNext = l => l && isOpen(l) && (['talking','hot','meeting','nego'].includes(l.stage) || l.hot) && (!l.nextAt || l.nextAt < Date.now());
+function userClose(){
+  const s = S.sheet, l = s && s.type === 'lead' && S.leads.get(s.id);
+  if (S.rec) S.rec.stop();
+  if (needsNext(l) && !S.focus) { openSheet('nextstep', l.id); return; }
+  closeSheet();
+}
 function closeSheet(){ S.sheet = null; $('#sheetWrap').hidden = true; $('#sheet').innerHTML = ''; setTimeout(bxRun, 0); }
 function head(title, sub){ return `<div class="grab"></div><div class="shead"><div style="flex:1;min-width:0"><h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ''}</div><button class="x" data-act="closeSheet" aria-label="Close">✕</button></div>`; }
 function renderSheet(){
   const s = S.sheet; if (!s) return; const l = S.leads.get(s.id); const box = $('#sheet');
   if (!l) { closeSheet(); return; }
   let h = '';
-  if (s.type === 'lead') {
+  if (s.type === 'nextstep') {
+    h = head('Next step for ' + esc(l.name || 'this lead'), 'Every active lead needs a follow-up date, so nobody is forgotten.')
+      + `<div class="form"><div class="chips">${NEXT.map(n => `<button class="chip" data-act="nextPick" data-id="${l.id}" data-v="${n[0]}">${n[1]}</button>`).join('')}</div>
+        <button class="btn btn-ghost" data-act="closeSheetForce">Close without a date</button></div>`;
+  } else if (s.type === 'lead') {
     h = head(`${esc(l.name || 'No name')} ${l.example ? '<span class="pill ex">Example</span>' : ''}`, `${esc(l.flag || '')} ${esc(l.country || '')} · <span class="pill s-${l.stage}">${esc(STAGE[l.stage])}</span> · created ${esc(new Date(l.crmCreated || l.createdAt).toLocaleDateString([], {day:'numeric', month:'short', year:'numeric'}))}`)
       + briefing(l) + contactBar(l) + outcomeBar(l)
       + `<details class="edit" id="editBox" ${S.editOpen ? 'open' : ''}><summary>Profile &amp; stage</summary><div class="inner">
@@ -1290,7 +1324,11 @@ document.addEventListener('click', e => {
   switch (act) {
     case 'tab': setTab(t.dataset.tab); break;
     case 'open': openSheet('lead', id); break;
-    case 'closeSheet': closeSheet(); break;
+    case 'closeSheet': userClose(); break;
+    case 'closeSheetForce': closeSheet(); render(); break;
+    case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
+    case 'dictate': dictate(t, id); break;
+    case 'setVoice': S.cfg.voiceLang = t.dataset.v; saveCfg(); renderView(); break;
     case 'startFocus': startFocus(); break;
     case 'startList': if (S.listIds && S.listIds.length) { S.focus = {q: [...S.listIds], i: 0, done: 0}; renderFocus(); } break;
     case 'exitFocus': S.focus = null; closeSheet(); render(); break;
@@ -1797,7 +1835,7 @@ document.addEventListener('change', async e => { if (e.target.id !== 'card_file'
 });
 document.addEventListener('change', e => { if (e.target.id !== 'imp_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(importLeads); });
 document.addEventListener('toggle', e => { if (e.target.id === 'editBox') S.editOpen = e.target.open; }, true);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.sheet) closeSheet(); else if (S.focus) { S.focus = null; render(); } } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.sheet) userClose(); else if (S.focus) { S.focus = null; render(); } } });
 render();
 startApp();
 setTimeout(bxRun, 3000);

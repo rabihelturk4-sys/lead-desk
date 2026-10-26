@@ -1,5 +1,5 @@
 /* Keeps the app shell available offline; lead data is cached by Firestore itself. */
-const CACHE = 'lead-desk-v24';
+const CACHE = 'lead-desk-v25';
 const SHELL = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -12,7 +12,11 @@ self.addEventListener('fetch', e => {
 /* Tapping a "new lead" notification opens Lead Desk */
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  e.waitUntil(self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(cs => cs.length ? cs[0].focus() : self.clients.openWindow('./')));
+  const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(cs => {
+    if (!cs.length) return self.clients.openWindow(url);
+    return (url.includes('lead=') && cs[0].navigate ? cs[0].navigate(url) : Promise.resolve(cs[0])).then(c => (c || cs[0]).focus());
+  }));
 });
 /* Background alert from the GitHub check (Firebase Cloud Messaging, data only) */
 self.addEventListener('push', e => {
