@@ -1052,7 +1052,15 @@ function outcomeBar(l){
     <div class="actions">${S.focus ? `<button class="btn btn-ghost" data-act="skip">Skip, next lead</button>` : `<button class="btn btn-ghost" data-act="nextLead" data-id="${l.id}">Next lead without logging</button>`}<button class="btn btn-ghost" data-act="dismissAfter">Close</button></div></div>` : '';
   const nextBtn = !S.focus ? `<button class="btn btn-ghost" data-act="nextLead" data-id="${l.id}">Next lead →</button>` : '';
   const tt = theirTime(l), late = lateThere(l);
-  return `${after}<div class="lbl">How did it go?</div>${tt ? `<div class="hint">Their time now ${tt}${late ? ' – late there: the No answer message says you will call tomorrow' : ''}</div>` : ''}<div class="outcomes">
+  return `${after}
+  <div class="updbox">
+    <div class="lbl">Add update</div>
+    <div class="chips">${QUICK_UPD.map(q => `<button class="chip" data-act="quickUpd" data-id="${l.id}" data-v="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+    <textarea class="input" id="upd_${l.id}" placeholder="Write a comment (optional) – e.g. what they replied"></textarea>
+    <button class="btn btn-primary" data-act="saveUpd" data-id="${l.id}">Save update</button>
+    <div class="hint">Tap a quick update to save it at once. Anything you typed in the box is saved with it.</div>
+  </div>
+  <div class="lbl">How did it go?</div>${tt ? `<div class="hint">Their time now ${tt}${late ? ' – late there: the No answer message says you will call tomorrow' : ''}</div>` : ''}<div class="outcomes">
     <button class="obtn na" data-act="noans" data-id="${l.id}">No answer</button>
     <a class="obtn nam" href="${msgLink('wa', l, 'noanswer')}" ${waTarget()} data-act="noansMsg" data-ch="wa" data-id="${l.id}">No answer + WhatsApp</a>
     <a class="obtn ok" href="${msgLink('sms', l, 'noanswer')}" ${EXT} data-act="noansMsg" data-ch="sms" data-id="${l.id}">No answer + SMS</a>
@@ -1066,13 +1074,6 @@ function outcomeBar(l){
     <button class="obtn lost" data-act="lost" data-id="${l.id}">Not interested</button>
   </div>
   ${nextBtn}
-  <div class="updbox">
-    <div class="lbl">Add update</div>
-    <div class="chips">${QUICK_UPD.map(q => `<button class="chip" data-act="quickUpd" data-id="${l.id}" data-v="${esc(q)}">${esc(q)}</button>`).join('')}</div>
-    <textarea class="input" id="upd_${l.id}" placeholder="Write a comment (optional) – e.g. what they replied"></textarea>
-    <button class="btn btn-primary" data-act="saveUpd" data-id="${l.id}">Save update</button>
-    <div class="hint">Tap a quick update to save it at once. Anything you typed in the box is saved with it.</div>
-  </div>
   <div class="lbl">Move to</div>
   <div class="movebar">${[['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later'],['junk','Junk']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
 `;
