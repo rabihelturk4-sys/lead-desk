@@ -1026,6 +1026,7 @@ function viewMsgs(){
     ${mailMode() === 'zoho' ? `<div class="field"><label for="zoho_host">Your Zoho Mail address (change only if your Zoho is not mail.zoho.com, e.g. mail.zoho.eu)</label><input class="input" id="zoho_host" value="${esc(zohoHost())}"></div>` : ''}
     ${chipGroup('autoNaMail', [['0','Off'],['1','Email the client automatically after the 3rd No answer']], S.cfg.autoNaMail ? '1' : '0', 'setAutoNaMail')}
     <div class="hint">The final email is sent once per lead, after the 3rd No answer, from your Zoho mailbox within about 5–15 minutes, in the lead's language, with your business card. Edit the text in Messages → "Final email after 3rd No answer".${S.sync && S.sync.mailRun ? ` Last emails: ${S.sync.mailSent || 0} sent ${ago(S.sync.mailRun)}${S.sync.mailError ? ' – problem: ' + esc(S.sync.mailError) : ' ✓'}` : ''}</div>
+    <button class="btn btn-ghost" data-act="testNaMail">Send a test of the final email to me (${esc(myEmail())})</button>
     <div class="field"><span class="lbl">Business card</span>${S.cfg.cardName ? `<div class="hint">✓ ${esc(S.cfg.cardName)} – attached to the automatic emails</div>${S.cardPreview ? `<img src="${S.cardPreview}" alt="Business card" style="max-width:100%;border-radius:8px">` : ''}` : '<div class="hint">No card yet – add a photo/image or PDF of your business card.</div>'}
       <div class="actions"><label class="btn btn-ghost" for="card_file">${S.cfg.cardName ? 'Change card' : 'Add business card'}</label>${S.cfg.cardName ? '<button class="btn btn-ghost" data-act="cardDel">Remove</button>' : ''}</div>
       <input type="file" id="card_file" accept="image/*,application/pdf" hidden></div>
@@ -1258,11 +1259,11 @@ function doNoAnswer(id, ch){
 }
 /* Final email after the 3rd No answer: written to the outbox and sent from your Zoho mailbox by the background service (with your business card).
    Once per lead, only when the lead has an email and it is turned on in Settings → Email. */
-function queueNaMail(l){
-  if (!S.cfg.autoNaMail || !l.email || l.naMailAt) return false;
+function queueNaMail(l, test){
+  if (!test && (!S.cfg.autoNaMail || !l.email || l.naMailAt)) return false;
   const L = l.lang || 'en', sig = mailSig();
   const text = tplText(L, 'na_email', l).replace(/\n{3,}/g, '\n\n') + (sig ? '\n' + sig : '');
-  write('outbox/m' + Date.now() + l.id, {to: l.email, subject: fill(DEF_SUBJ[L].na_email, l), text, leadId: l.id, status: 'pending', createdAt: Date.now()}, 'set');
+  write('outbox/m' + Date.now() + (l.id || 'test'), {to: l.email, subject: (test ? '[Test] ' : '') + fill(DEF_SUBJ[L].na_email, l), text, leadId: l.id || null, status: 'pending', createdAt: Date.now()}, 'set');
   return true;
 }
 function doDeclined(id){
@@ -1430,6 +1431,7 @@ document.addEventListener('click', e => {
     case 'enablePush': enablePush(false); break;
     case 'askNotif': try { Notification.requestPermission().then(r => { toast(r === 'granted' ? 'Notifications on' : 'Notifications were not allowed – turn them on in the phone settings for this app'); renderView(); }); } catch (e) { toast('This browser cannot show notifications'); } break;
     case 'setAutoNaMail': S.cfg.autoNaMail = t.dataset.v === '1'; saveCfg(); renderView(); toast(S.cfg.autoNaMail ? (S.cfg.cardName ? 'Automatic email on' : 'Automatic email on – add your business card below') : 'Automatic email off'); break;
+    case 'testNaMail': queueNaMail({id: '', name: (S.cfg.myName || 'Test').split(' ')[0], email: myEmail(), lang: 'en'}, true); toast('Test email queued – it arrives in your inbox within about 5–15 minutes'); break;
     case 'cardDel': write('config/card', null, 'del'); S.cfg.cardName = ''; S.cardPreview = ''; saveCfg(); renderView(); toast('Business card removed'); break;
     case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
     case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
