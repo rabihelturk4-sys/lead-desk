@@ -1284,6 +1284,21 @@ function saveLead(then){
 
 document.addEventListener('paste', e => { if (e.target && e.target.id === 'paste_box') setTimeout(() => { const b = document.querySelector('[data-act="parsePaste"]'); if (b) b.click(); }, 50); });
 /* ---------- read a photo on the device (Tesseract OCR, loaded on first use) ---------- */
+/* Prepare a photo for reading: right way up, 1600–2400 px wide, grey, dark screens turned light, contrast stretched */
+async function prepImage(file){
+  let bmp;
+  try { bmp = await createImageBitmap(file, {imageOrientation: 'from-image'}); } catch (e) { return file; }
+  const sc = bmp.width > 2400 ? 2400 / bmp.width : bmp.width < 1600 ? 1600 / bmp.width : 1;
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(bmp, 0, 0, c.width, c.height);
+  const img = g.getImageData(0, 0, c.width, c.height), px = img.data, hist = new Uint32Array(256); let sum = 0;
+  for (let i = 0; i < px.length; i += 4) { const y = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000 | 0; px[i] = y; hist[y]++; sum += y; }
+  const n = px.length / 4, dark = sum / n < 128;
+  let lo = 0, hi = 255, acc = 0; while (lo < 255 && (acc += hist[lo]) < n * 0.02) lo++; acc = 0; while (hi > 0 && (acc += hist[hi]) < n * 0.02) hi--;
+  const span = Math.max(1, hi - lo);
+  for (let i = 0; i < px.length; i += 4) { let y = Math.min(255, Math.max(0, (px[i] - lo) * 255 / span)); if (dark) y = 255 - y; px[i] = px[i + 1] = px[i + 2] = y; }
+  g.putImageData(img, 0, 0); return c;
+}
 S.canPhoto = true;
 let ocrLoad = null;
 const loadOcr = () => ocrLoad || (ocrLoad = new Promise((ok, bad) => { const sc = document.createElement('script');
@@ -1295,9 +1310,10 @@ document.addEventListener('change', async e => {
   res.innerHTML = '<div class="brief"><div class="brief-label">Reading the picture…</div><div class="hint" id="ocr_prog">The first time takes a little longer (the reader downloads once).</div></div>';
   try {
     const T = await loadOcr();
-    const out = await T.recognize(file, 'eng', {logger: m => { const p = $('#ocr_prog'); if (p && m.status) p.textContent = m.status + (m.progress ? ' ' + Math.round(m.progress * 100) + '%' : ''); }});
+    const out = await T.recognize(await prepImage(file), 'eng', {logger: m => { const p = $('#ocr_prog'); if (p && m.status) p.textContent = m.status + (m.progress ? ' ' + Math.round(m.progress * 100) + '%' : ''); }});
     const text = (out && out.data && out.data.text) || '';
     if (!text.trim()) throw {code: 'empty'};
+    if (!/\d{7,}|\+\s?\d|@/.test(text.replace(/[\s\-().]/g, ''))) toast('Read the text, but no phone or email – check the box and add the number');
     const box = $('#paste_box'); const merged = ((box && box.value.trim()) ? box.value.trim() + '\n\n' : '') + text.trim();
     S.pasteText = merged; if (box) box.value = merged;
     S.paste = parsePaste(merged);
