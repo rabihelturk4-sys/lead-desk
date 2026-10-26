@@ -221,6 +221,11 @@ details.edit .inner{padding:0 14px 16px;display:flex;flex-direction:column;gap:1
 #auth{position:fixed;inset:0;z-index:60;background:var(--bg);overflow-y:auto;padding-top:calc(40px + env(safe-area-inset-top,0px))}
 .linkbtn{background:none;border:0;color:var(--accent);font-weight:500;padding:4px 0;text-align:left;text-decoration:none}
 .aftercall{background:var(--accent-bg);color:var(--ink);border:2px solid var(--accent);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:15px;scroll-margin-top:80px}
+.pill.newbadge{background:var(--hot);color:#fff;letter-spacing:.06em}
+.freshban{background:var(--hot);color:#fff;border-radius:12px;padding:12px 14px;font-size:15px;line-height:1.4}
+h2.sec.newsec .dot{background:var(--hot);box-shadow:0 0 0 4px var(--hot-bg)}
+nav.tabs button{position:relative}
+.tabbadge{position:absolute;top:4px;left:calc(50% + 6px);background:var(--hot);color:#fff;border-radius:99px;font-size:11px;font-weight:700;min-width:18px;height:18px;padding:0 5px;display:grid;place-items:center}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:50;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:500;font-size:14px;max-width:calc(100% - 32px);box-shadow:var(--shadow)}
 .banner{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:12px 14px;font-size:14px}
 .confirm-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -536,6 +541,48 @@ async function bxEnsure(l){
   return id;
 }
 const BX_SKIP = new Set(['created', 'note']);
+/* New leads: every few minutes while the app is open, leads assigned to me in the chosen Bitrix stage ("Lead assigned")
+   are added to Lead Desk in No answer, marked NEW until the first contact, and moved in Bitrix to the No answer stage. */
+const bxMe = () => { const m = bxHook().match(/\/rest\/(\d+)\//); return m ? m[1] : ''; };
+let bxPulling = false;
+async function bxPull(manual){
+  const stage = S.cfg.bxInStage;
+  if (bxPulling || !S.ready || !stage || !bxValid(bxHook())) return; bxPulling = true;
+  try {
+    const list = await bxCall('crm.lead.list', {filter: {STATUS_ID: stage, ASSIGNED_BY_ID: bxMe()}, select: ['ID', 'TITLE', 'NAME', 'LAST_NAME', 'PHONE', 'EMAIL', 'SOURCE_ID', 'SOURCE_DESCRIPTION', 'COMMENTS', 'DATE_CREATE'], order: {DATE_CREATE: 'DESC'}});
+    const byBx = new Set([...S.leads.values()].map(bxId).filter(Boolean));
+    const added = [];
+    for (const b of (list || [])) {
+      if (byBx.has(String(b.ID))) continue;
+      const phone = ((b.PHONE || [])[0] || {}).VALUE || '', email = ((b.EMAIL || [])[0] || {}).VALUE || '';
+      const ex = findByPhone(phone) || findByEmail(email);
+      const name = [b.NAME, b.LAST_NAME].filter(Boolean).join(' ') || b.TITLE || 'New lead';
+      const created = b.DATE_CREATE ? Date.parse(b.DATE_CREATE) : Date.now();
+      if (ex) { patchLead(ex.id, {bxId: String(b.ID), leadNo: ex.leadNo || String(b.ID), stage: 'noanswer', fresh: true, nextAt: nextWindowAt(ex)}, {k: 'note', txt: 'Came in again from Bitrix (lead #' + b.ID + ')'}, {quiet: true}); added.push(ex.name); continue; }
+      const id = 'X' + b.ID;
+      const lead = newLeadDoc({name, phone, email, notes: [b.COMMENTS && String(b.COMMENTS).replace(/<[^>]+>/g, ' ').trim(), b.SOURCE_DESCRIPTION].filter(Boolean).join('\n'), source: b.SOURCE_ID || 'Bitrix'});
+      Object.assign(lead, {stage: 'noanswer', fresh: true, freshAt: Date.now(), bxId: String(b.ID), leadNo: String(b.ID), crmCreated: created, lastAt: null, note: lead.note,
+        history: [{t: Date.now(), k: 'created', txt: 'New lead from Bitrix (lead #' + b.ID + ')'}]});
+      lead.nextAt = nextWindowAt(lead);
+      S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set'); added.push(name);
+      const map = S.cfg.bxMap || {};
+      if (bxOn() && map.noanswer && map.noanswer !== stage) bxQueue({...lead, id}, 'crm.lead.update', {id: String(b.ID), fields: {STATUS_ID: map.noanswer}}, 'move to No answer');
+    }
+    S.bxPullAt = Date.now();
+    if (added.length) {
+      render(); const msg = added.length === 1 ? 'New lead: ' + added[0] : added.length + ' new leads: ' + added.slice(0, 3).join(', ');
+      toast(msg + ' – in No answer');
+      try { if ('Notification' in window && Notification.permission === 'granted') {
+        const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+        if (reg) reg.showNotification('Lead Desk – ' + (added.length === 1 ? 'new lead' : added.length + ' new leads'), {body: msg + '. Call them now.', icon: 'icon-192.png', tag: 'newlead', renotify: true});
+        else new Notification('Lead Desk', {body: msg, icon: 'icon-192.png'});
+      } } catch (e) {}
+    } else if (manual) toast('No new leads in Bitrix right now');
+  } catch (e) { if (manual) toast('Bitrix: ' + (e.message || e.code)); S.bxErr = e.message || e.code; }
+  bxPulling = false;
+}
+setInterval(() => { if (document.visibilityState === 'visible') bxPull(); }, 5 * 60e3);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - (S.bxPullAt || 0) > 60e3) bxPull(); });
 /* Called for every saved change: stage moves and logged results go to Bitrix when automatic updates are on */
 function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
@@ -549,6 +596,7 @@ function patchLead(id, patch, hist, opts = {}){
   const p = {...patch};
   if (hist) p.history = [...(l.history || []), {t: Date.now(), ...hist}].slice(-200);
   if (hist && S.lastCall && S.lastCall.id === id && hist.k !== 'note') { S.lastCall = null; S.afterCall = null; saveSession(); }
+  if (l.fresh && hist && !['note', 'created', 'stage'].includes(hist.k)) p.fresh = false;
   S.leads.set(id, {...l, ...p});
   write('leads/' + id, p);
   try { bxAfterPatch({...l, ...p}, patch, hist, l); } catch (e) {}
@@ -615,7 +663,10 @@ function connect(root){
 /* ---------- render ---------- */
 function typingIn(el){ const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && el.contains(a); }
 function softRender(){ render(); }
+function tabBadge(){ const n = [...S.leads.values()].filter(l => l.fresh).length; const b = document.querySelector('nav.tabs button[data-tab=today]');
+  if (b) { let i = b.querySelector('.tabbadge'); if (!i) { i = document.createElement('span'); i.className = 'tabbadge'; b.appendChild(i); } i.textContent = n; i.hidden = !n; } }
 function render(){
+  tabBadge();
   if (!typingIn($('#view'))) renderView(); else if (S.tab === 'leads') renderLeadList();
   if (!typingIn($('#focus'))) renderFocus();
   if (S.sheet && S.sheet.type === 'lead' && !typingIn($('#sheet'))) renderSheet();
@@ -657,7 +708,7 @@ function row(l){
   const lh = lastHist(l); const over = l.nextAt && l.nextAt < Date.now() && isOpen(l);
   return `<button class="row" data-act="open" data-id="${l.id}">
     <span class="av ${isHot(l) ? 'hot' : ''}">${esc(initials(l.name))}</span>
-    <span class="rmain"><span class="rname">${esc(l.flag || '')} ${esc(l.name || 'No name')} ${l.hot ? '<span class="flame">●</span>' : ''} ${l.example ? '<span class="pill ex">Example</span>' : ''}</span>
+    <span class="rmain"><span class="rname">${l.fresh ? '<span class="pill newbadge">NEW</span> ' : ''}${esc(l.flag || '')} ${esc(l.name || 'No name')} ${l.hot ? '<span class="flame">●</span>' : ''} ${l.example ? '<span class="pill ex">Example</span>' : ''}</span>
     <span class="rsub"><span class="pill s-${l.stage}">${esc(STAGE[l.stage] || l.stage)}</span> ${isOpen(l) && winOpen(l) ? '<span class="pill s-meeting">Call now</span> ' : ''}${l.lastAt ? esc('Last: ' + lastContact(l) + (lh ? ' · ' + lh.txt : '')) : 'Not contacted yet'}</span></span>
     <span class="rdue ${over ? 'over' : ''}">${l.nextAt ? (over ? 'Overdue<br>' : '') + esc(when(l.nextAt)) : ''}</span></button>`;
 }
@@ -669,6 +720,7 @@ function section(cls, title, arr, emptyTxt, extra = ''){
 function buildQueue(){
   const all = [...S.leads.values()], seen = new Set(), q = [];
   const push = arr => arr.forEach(l => { if (!seen.has(l.id)) { seen.add(l.id); q.push(l.id); } });
+  push(all.filter(l => l.fresh).sort((a, b) => (b.freshAt || 0) - (a.freshAt || 0)));
   push(all.filter(atRisk).sort(byNext));
   push(all.filter(l => isDue(l) && isHot(l)).sort(byNext));
   push(all.filter(isNew).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
@@ -688,7 +740,8 @@ function viewToday(){
   const all = [...S.leads.values()], n = Date.now();
   const risk = all.filter(atRisk).sort(byNext);
   const meets = all.filter(l => l.stage === 'meeting' && l.meetingAt && l.meetingAt > n - 3*H && l.meetingAt < n + 3*D).sort((a, b) => a.meetingAt - b.meetingAt);
-  const neu = all.filter(isNew).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const fresh = all.filter(l => l.fresh).sort((a, b) => (b.freshAt || 0) - (a.freshAt || 0));
+  const neu = all.filter(l => isNew(l) && !l.fresh).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const laterBack = all.filter(l => l.stage === 'later' && isDue(l)).sort(byNext);
   const due = all.filter(l => isDue(l) && !atRisk(l) && !isNew(l) && l.stage !== 'later').sort(byNext);
   const nowList = [...risk, ...due, ...neu].filter(l => winOpen(l) && isOpen(l));
@@ -706,6 +759,7 @@ function viewToday(){
     <button class="btn btn-primary btn-big" data-act="startFocus" ${q.length ? '' : 'disabled'}>${q.length ? `Start calling · ${q.length} lead${q.length > 1 ? 's' : ''}` : 'All caught up for today'}</button>
     <div class="focus-line">${f.project ? `This week's project: <b>${esc(f.project)}</b>${f.area ? ' in ' + esc(f.area) : ''}` : `Set this week's project in <b>Messages</b> so your WhatsApp texts are ready.`}</div>
   </section>
+  ${fresh.length ? `<section><h2 class="sec newsec"><span class="dot"></span>New leads from Bitrix – call first <small>${fresh.length}</small></h2><div class="list">${fresh.map(row).join('')}</div></section>` : ''}
   ${section('meet', `Call now – in their time window (${fmtH(Math.floor(dh * 4) / 4)} Dubai)`, nowList, all.length ? 'Nobody on today\'s list is in their call window right now. The next windows: Gulf 11 AM & 4 PM, Europe 12 PM & 5 PM, UK 1 PM & 5 PM, USA 7 PM.' : '')}
   ${section('hot', "Hot leads – don't lose them", risk, all.length ? 'No hot lead is waiting. Good work.' : '')}
   ${section('meet', 'Meetings, next 3 days', meets.map(l => ({...l, nextAt: l.meetingAt})), '')}
@@ -800,6 +854,9 @@ function viewMsgs(){
     <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
     ${S.bxStatuses ? `<div class="lbl">Match the stages</div><p class="hint" style="margin:0">When you move a lead in Lead Desk, Bitrix moves it to the stage you pick here. "Don't change" leaves Bitrix as it is.</p>
       ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost'].map(k => `<div class="field"><label for="bxm_${k}">${esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
+    ${S.bxStatuses ? `<div class="field"><label for="bx_in">New leads: bring in leads assigned to me from this Bitrix stage</label><select class="input" id="bx_in"><option value="">Off</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${S.cfg.bxInStage === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select>
+      <div class="hint">They arrive in No answer, marked NEW, and are moved to your No answer stage in Bitrix (when automatic updates are on). Checked every 5 minutes while Lead Desk is open.</div></div>` : (S.cfg.bxInStage ? '<div class="hint">New leads are brought in from Bitrix stage ' + esc(S.cfg.bxInStage) + '. Tap Test connection to change it.</div>' : '')}
+    ${S.cfg.bxInStage ? `<div class="actions"><button class="btn btn-ghost" data-act="bxPullNow">Check Bitrix for new leads now</button>${'Notification' in window && Notification.permission !== 'granted' ? '<button class="btn btn-ghost" data-act="askNotif">Turn on notifications</button>' : ''}</div>` : ''}
     ${bxValid(bxHook()) ? chipGroup('bxOn', [['0','Off – test first'],['1','Update Bitrix automatically']], bxOn() ? '1' : '0', 'setBxOn') : ''}
     ${bxQ.length ? `<div class="hint">${bxQ.length} update${bxQ.length > 1 ? 's' : ''} waiting to be sent to Bitrix.</div>` : ''}${S.bxErr ? `<div class="banner">Last Bitrix problem: ${esc(S.bxErr)}</div>` : ''}
   </div>
@@ -847,6 +904,7 @@ function briefing(l){
   const recent = (l.history || []).filter(h => h.k !== 'created').slice(-3).reverse();
   return `<div class="brief">
     <div class="brief-label">Before you contact</div>
+    ${l.fresh ? `<div class="freshban"><b>NEW LEAD from Bitrix</b> – arrived ${esc(ago(l.freshAt || l.createdAt))}${l.crmCreated ? ' (created ' + esc(when(l.crmCreated)) + ')' : ''}. Not contacted yet – call now, it's the best moment.</div>` : ''}
     ${atRisk(l) ? `<div class="risk">Hot lead – ${l.lastAt ? 'last contact ' + esc(ago(l.lastAt)) : 'not contacted yet'}. Don't let it go cold.</div>` : ''}
     ${l.stage === 'meeting' && l.meetingAt ? `<div class="meetb">Meeting: ${esc(when(l.meetingAt))}${l.meetingKind ? ' · ' + esc(l.meetingKind) : ''}</div>` : ''}
     ${l.todo ? `<div class="todo">You promised: ${esc(l.todo)}</div>` : ''}
@@ -1194,10 +1252,14 @@ document.addEventListener('click', e => {
         const map = {...(S.cfg.bxMap || {})}; const norm = x => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
         const guess = {new: ['new', 'newlead', 'unprocessed'], noanswer: ['noanswer', 'notanswer'], talking: ['pipeline', 'inprogress', 'processing'], workshop: ['workshop'], pool: ['pool'], later: ['buylater', 'later'], closed: ['converted', 'closed', 'qualified'], lost: ['junk', 'lost', 'notinterested']};
         for (const [k, names] of Object.entries(guess)) if (!map[k]) { const hit = S.bxStatuses.find(st => names.includes(norm(st.NAME))); if (hit) map[k] = hit.STATUS_ID; }
-        S.cfg.bxMap = map; saveCfg();
+        S.cfg.bxMap = map;
+        if (!S.cfg.bxInStage) { const hit = S.bxStatuses.find(st => /assign/i.test(st.NAME)); if (hit) S.cfg.bxInStage = hit.STATUS_ID; }
+        saveCfg();
         S.bxMsg = `<div class="meetb">Connected ✓ – found ${S.bxStatuses.length} lead stages in your Bitrix. Check the matching below.</div>`; renderView();
       }, e => { S.bxMsg = `<div class="banner">${esc(e.code === 'net' ? 'Bitrix did not answer this browser. Check the link, or your Bitrix blocks access from other websites – tell Claude.' : (e.message || e.code))}</div>`; renderView(); });
       break; }
+    case 'bxPullNow': bxPull(true); break;
+    case 'askNotif': try { Notification.requestPermission().then(r => { toast(r === 'granted' ? 'Notifications on' : 'Notifications were not allowed – turn them on in the phone settings for this app'); renderView(); }); } catch (e) { toast('This browser cannot show notifications'); } break;
     case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
     case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
       toast('Sending to Bitrix…');
@@ -1254,6 +1316,7 @@ document.addEventListener('change', e => {
     if (S.sheet && S.sheet.type === 'wa') renderSheet();
     return; }
   if (t.dataset.cfg) { const [a, b] = t.dataset.cfg.split('.'); if (b) { S.cfg[a] = {...(S.cfg[a] || {}), [b]: t.value.trim()}; } else S.cfg[a] = t.value.trim(); saveCfg(); toast('Saved'); return; }
+  if (t.id === 'bx_in') { S.cfg.bxInStage = t.value; saveCfg(); toast(t.value ? 'New leads will come in from Bitrix' : 'Bringing in new leads is off'); renderView(); if (t.value) setTimeout(() => bxPull(true), 500); return; }
   if (t.dataset.bxmap) { S.cfg.bxMap = {...(S.cfg.bxMap || {}), [t.dataset.bxmap]: t.value}; saveCfg(); toast('Saved'); return; }
   if (t.dataset.tpl) { const L = S.tplLang; S.cfg.templates = S.cfg.templates || {}; S.cfg.templates[L] = {...(S.cfg.templates[L] || {}), [t.dataset.tpl]: t.value}; saveCfg(); toast('Template saved'); return; }
   if (t.id === 'meet_dt') { S.form.dt = t.value; S.form.quick = null; }
@@ -1592,6 +1655,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.shee
 render();
 startApp();
 setTimeout(bxRun, 3000);
+setTimeout(() => bxPull(), 4000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 
