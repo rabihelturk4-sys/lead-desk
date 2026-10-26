@@ -1,0 +1,43 @@
+# Checks Bitrix for new leads every 5 minutes, even when Lead Desk is closed.
+name: Bitrix new leads
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bitrix-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Firebase Admin
+        working-directory: .github/sync
+        run: npm install --no-save --no-audit --no-fund firebase-admin@12.7.0
+      - name: Bring in new Bitrix leads
+        run: node .github/sync/bitrix-sync.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          BITRIX_WEBHOOK: ${{ secrets.BITRIX_WEBHOOK }}
+          LEADDESK_UID: ${{ secrets.LEADDESK_UID }}
+      # GitHub pauses scheduled runs after 60 days without commits; an empty commit every 45 days keeps it running.
+      - name: Keep the schedule active
+        run: |
+          last=$(git log -1 --format=%ct); now=$(date +%s)
+          if [ $((now - last)) -gt $((45 * 86400)) ]; then
+            git config user.name "lead-desk-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "Keep the Bitrix check schedule active"
+            git push
+          fi
