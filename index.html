@@ -1288,16 +1288,25 @@ document.addEventListener('paste', e => { if (e.target && e.target.id === 'paste
 async function prepImage(file){
   let bmp;
   try { bmp = await createImageBitmap(file, {imageOrientation: 'from-image'}); } catch (e) { return file; }
-  const sc = bmp.width > 2400 ? 2400 / bmp.width : bmp.width < 1600 ? 1600 / bmp.width : 1;
+  /* Camera photos of a screen carry the screen's pixel grid (moiré): blur it away at ~900 px, then enlarge.
+     Screenshots are already clean: just bring them to 1600–2400 px. */
+  const photo = /jpe?g|heic|heif/i.test(file.type || '') && bmp.width > 1000;
+  const sc = photo ? 900 / bmp.width : bmp.width > 2400 ? 2400 / bmp.width : bmp.width < 1600 ? 1600 / bmp.width : 1;
   const c = document.createElement('canvas'); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
-  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(bmp, 0, 0, c.width, c.height);
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
+  if (photo) { const s0 = document.createElement('canvas'); s0.width = bmp.width; s0.height = bmp.height; const g0 = s0.getContext('2d');
+    g0.filter = 'blur(' + (bmp.width / 750).toFixed(1) + 'px)'; g0.drawImage(bmp, 0, 0); g.drawImage(s0, 0, 0, c.width, c.height); }
+  else g.drawImage(bmp, 0, 0, c.width, c.height);
   const img = g.getImageData(0, 0, c.width, c.height), px = img.data, hist = new Uint32Array(256); let sum = 0;
   for (let i = 0; i < px.length; i += 4) { const y = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000 | 0; px[i] = y; hist[y]++; sum += y; }
   const n = px.length / 4, dark = sum / n < 128;
   let lo = 0, hi = 255, acc = 0; while (lo < 255 && (acc += hist[lo]) < n * 0.02) lo++; acc = 0; while (hi > 0 && (acc += hist[hi]) < n * 0.02) hi--;
   const span = Math.max(1, hi - lo);
   for (let i = 0; i < px.length; i += 4) { let y = Math.min(255, Math.max(0, (px[i] - lo) * 255 / span)); if (dark) y = 255 - y; px[i] = px[i + 1] = px[i + 2] = y; }
-  g.putImageData(img, 0, 0); return c;
+  g.putImageData(img, 0, 0);
+  if (!photo) return c;
+  const big = document.createElement('canvas'); big.width = c.width * 2; big.height = c.height * 2;
+  const gb = big.getContext('2d'); gb.imageSmoothingQuality = 'high'; gb.drawImage(c, 0, 0, big.width, big.height); return big;
 }
 S.canPhoto = true;
 let ocrLoad = null;
@@ -1314,6 +1323,7 @@ document.addEventListener('change', async e => {
     const text = (out && out.data && out.data.text) || '';
     if (!text.trim()) throw {code: 'empty'};
     if (!/\d{7,}|\+\s?\d|@/.test(text.replace(/[\s\-().]/g, ''))) toast('Read the text, but no phone or email – check the box and add the number');
+    else if (/jpe?g|heic|heif/i.test(file.type || '')) toast('Check the phone number before saving – photos of a screen can misread digits');
     const box = $('#paste_box'); const merged = ((box && box.value.trim()) ? box.value.trim() + '\n\n' : '') + text.trim();
     S.pasteText = merged; if (box) box.value = merged;
     S.paste = parsePaste(merged);
