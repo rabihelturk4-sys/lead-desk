@@ -440,11 +440,11 @@ function waMode(){ try { const v = localStorage.getItem('waMode'); if (v === 'ap
 const waLink = (l, text) => waMode() === 'app'
   ? 'whatsapp://send?phone=' + digits(l.phone) + (text ? '&text=' + encodeURIComponent(text) : '')
   : 'https://wa.me/' + digits(l.phone) + (text ? '?text=' + encodeURIComponent(text) : '');
-/* Phone, WhatsApp, SMS and email links always open OUTSIDE the page: inside the Claude app,
+/* Phone, WhatsApp, SMS and email links: kept in one place so every button behaves the same,
    opening them in the page's own frame shows "This content is blocked". */
 const EXT = '';  /* tel:, sms:, mailto:, whatsapp: open the phone's own apps */
 const waTarget = () => waMode() === 'web' ? 'target="_blank" rel="noopener"' : '';
-/* How the Call button opens the dialer on this device (phones differ inside the Claude app) */
+/* How the Call button opens the dialer on this device */
 const CALL_MODES = [['blank','1 · New window'],['top','2 · Same window'],['intent','3 · Android dialer'],['open','4 · Pop-up']];
 function callMode(){ try { const v = localStorage.getItem('callMode'); if (CALL_MODES.some(m => m[0] === v)) return v; } catch (e) {} return 'blank'; }
 function telLink(num, cls, inner, id = ''){
@@ -745,7 +745,7 @@ function renderView(){
   else v.innerHTML = viewMsgs();
 }
 function viewToday(){
-  if (S.dbOk === false) return `<div class="banner">Your leads can't be saved here. Open this page at claude.ai while signed in to your account, so leads are stored and synced between your phone and computer.</div>`;
+  if (S.dbOk === false) return `<div class="banner">Your leads can't be saved here. Sign in again to your account, so leads are stored and synced between your phone and computer.</div>`;
   if (!S.ready) return `<div class="empty">Loading your leads…</div>`;
   const all = [...S.leads.values()], n = Date.now();
   const risk = all.filter(atRisk).sort(byNext);
@@ -1224,7 +1224,6 @@ document.addEventListener('click', e => {
       patchLead(id, {stage:'meeting', hot:true, meetingAt: ms, meetingKind: kind, meetLink: link, ...(em && !ld.email ? {email: em} : {}), lastAt: Date.now(), nextAt: rem, noAnswer: 0}, {k:'meeting', txt: `Meeting booked: ${kind}, ${when(ms)}`}, {quiet: true});
       S.sheet.saved = true; renderSheet(); render(); break; }
     case 'waConfirm': { const ch = t.dataset.ch || 'wa'; patchLead(id, {}, {k: ch, txt: CH[ch] + ' sent: meeting ' + (S.leads.get(id).meetLink ? 'link' : 'confirmation')}, {quiet: true}); later(() => toast('Logged')); break; }
-    case 'bookCal': bookCal(id); break;
     case 'nextAfterMeet': advance('Meeting saved'); break;
     case 'setField': { const l = S.leads.get(id), g = t.dataset.g, v = t.dataset.v;
       if (g === 'stage') patchLead(id, {stage: v, hot: ['hot','meeting','nego'].includes(v) ? true : (['lost','closed'].includes(v) ? false : l.hot), ...(v === 'closed' ? {nextAt: null} : {})}, {k:'stage', txt:'Stage → ' + STAGE[v]});
@@ -1266,7 +1265,7 @@ document.addEventListener('click', e => {
         if (!S.cfg.bxInStage) { const hit = S.bxStatuses.find(st => /assign/i.test(st.NAME)); if (hit) S.cfg.bxInStage = hit.STATUS_ID; }
         saveCfg();
         S.bxMsg = `<div class="meetb">Connected ✓ – found ${S.bxStatuses.length} lead stages in your Bitrix. Check the matching below.</div>`; renderView();
-      }, e => { S.bxMsg = `<div class="banner">${esc(e.code === 'net' ? 'Bitrix did not answer this browser. Check the link, or your Bitrix blocks access from other websites – tell Claude.' : (e.message || e.code))}</div>`; renderView(); });
+      }, e => { S.bxMsg = `<div class="banner">${esc(e.code === 'net' ? 'Bitrix did not answer this browser. Check the link, or your Bitrix blocks access from other websites.' : (e.message || e.code))}</div>`; renderView(); });
       break; }
     case 'bxPullNow': bxPull(true); break;
     case 'askNotif': try { Notification.requestPermission().then(r => { toast(r === 'granted' ? 'Notifications on' : 'Notifications were not allowed – turn them on in the phone settings for this app'); renderView(); }); } catch (e) { toast('This browser cannot show notifications'); } break;
@@ -1336,46 +1335,6 @@ document.addEventListener('change', e => {
 /* ---------- Google Calendar booking ---------- */
 let mcp = null;
 S.mcpOk = false;
-function calError(e){
-  const c = e && e.code;
-  if (c === 'server_not_connected' || c === 'server_not_found') return 'Google Calendar is not connected. Add it in claude.ai Settings → Connectors, then try again.';
-  if (c === 'needs_reauth') return 'Google Calendar needs to be reconnected. Reconnect it in claude.ai Settings → Connectors, then try again.';
-  if (c === 'selection_required') return 'You have more than one Google Calendar connection. Choose one when claude.ai asks, then try again.';
-  if (c === 'not_in_manifest' || c === 'approval_required' || c === 'consent_required') return 'Calendar access was not allowed. Tap Book again and choose Allow.';
-  if (c === 'blocked_by_policy') return 'Your account settings block calendar access from this app.';
-  if (c === 'not_granted' || c === 'capability_disabled' || c === 'capability_removed') return 'Calendar booking is not available here. Open the app at claude.ai, or use Save without calendar.';
-  if (c === 'tool_error') return 'Google Calendar refused the booking: ' + esc(e.message || 'unknown reason') + '.';
-  return 'Google Calendar did not answer. Check your calendar before booking again – the event may already be there.';
-}
-async function bookCal(id){
-  const l = S.leads.get(id); const s = S.sheet; if (!l || !s || s.busy) return;
-  const v = $('#meet_dt').value; const ms = new Date(v).getTime();
-  if (!v || isNaN(ms)) { toast('Pick a date and time'); return; }
-  const email = ($('#meet_email').value || '').trim();
-  if (email && !/^\S+@\S+\.\S+$/.test(email)) { toast('That email looks wrong – check it or leave it empty'); return; }
-  if (!mcp) { s.err = calError({code: 'not_granted'}); renderSheet(); return; }
-  const kind = S.form.kind || 'Video call';
-  const iso = t => toLocalInput(t) + ':00';
-  const desc = [`Client: ${l.name}`, `Phone: +${digits(l.phone)}`, email && `Email: ${email}`, l.project && `Interested in: ${l.project}`, l.budget && `Budget: ${l.budget}`, l.purpose && `Goal: ${l.purpose}`, l.todo && `Promised: ${l.todo}`].filter(Boolean).join('\n');
-  const input = {summary: `${kind}: ${l.name}${S.cfg.myName ? ' & ' + S.cfg.myName : ''}`, startTime: iso(ms), endTime: iso(ms + H), description: desc,
-    addGoogleMeetUrl: kind === 'Video call', useDefaultReminders: true};
-  if (email) { input.attendees = [{email, displayName: l.name}]; input.notificationLevel = 'ALL'; }
-  if (kind === 'Office' || kind === 'Viewing') input.location = kind === 'Office' ? 'Office' : (l.project || 'Viewing');
-  s.busy = true; s.err = ''; renderSheet();
-  try {
-    const res = await mcp.callTool('Google Calendar', 'create_event', input);
-    const blob = JSON.stringify(res && (res.payload ?? res.content) || '');
-    const meet = (blob.match(/https:\/\/meet\.google\.com\/[a-z0-9-]+/i) || [])[0] || '';
-    const cal = (blob.match(/https:\/\/(?:www\.)?google\.com\/calendar\/event\?eid=[A-Za-z0-9_%=-]+/) || [])[0] || '';
-    const rem = ms - 3*H > Date.now() ? ms - 3*H : ms;
-    patchLead(id, {stage:'meeting', hot:true, meetingAt: ms, meetingKind: kind, meetLink: meet, calLink: cal, ...(email ? {email} : {}), lastAt: Date.now(), nextAt: rem, noAnswer: 0},
-      {k:'meeting', txt: `Meeting booked in Google Calendar: ${kind}, ${when(ms)}` + (email ? ` · invite emailed to ${email}` : '')}, {quiet: true});
-    Object.assign(S.sheet, {saved: true, inCal: true, invited: email, calLink: cal, busy: false});
-    renderSheet(); render(); toast('Booked in Google Calendar');
-  } catch (e) {
-    if (S.sheet) { S.sheet.busy = false; S.sheet.err = calError(e); renderSheet(); }
-  }
-}
 
 /* ---------- paste anything: find phone, email, name, source, campaign, comments ---------- */
 const SRC_MAP = {facebook:'Meta ads', meta:'Meta ads', 'meta ads':'Meta ads', instagram:'Instagram', tiktok:'TikTok', website:'Website', referral:'Referral', portal:'Portal', bayut:'Portal', 'property finder':'Portal'};
