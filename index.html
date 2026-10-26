@@ -253,7 +253,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const H = 3600e3, D = 24 * H;
 
-const STAGES = [['new','New'],['noanswer','No answer'],['talking','Pipeline'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost'],['junk','Junk']];
+const STAGES = [['new','New'],['noanswer','No answer'],['talking','Pipeline'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost']];
 /* Best call windows in Dubai time, by the lead's dialling code */
 const WIN_GROUPS = [
   [['971','968','974','965','973','966','962','961','20'], [[11,13],[16,19]], 'Gulf'],
@@ -290,7 +290,7 @@ function lastContact(l){ if (!l.lastAt) return 'Never contacted';
   const exact = (l.history || []).some(h => h.k !== 'created' && h.k !== 'note' && h.k !== 'stage' && Math.abs(h.t - l.lastAt) < 60e3) || l.crmTimeKnown;
   return date + (exact ? ', ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''); }
 function winNext(l){ const h = dubaiHour(); const nx = callWindows(l).find(([a]) => a > h); return nx ? 'opens ' + fmtH(nx[0]) : 'closed for today'; }
-const STAGE = Object.fromEntries(STAGES);
+const STAGE = Object.fromEntries([...STAGES, ['junk','Junk']]);   /* Junk is not a stage to keep leads in: the lead is removed */
 const OPT = {
   budget: ['< 1M AED','1–2M AED','2–5M AED','5M+ AED'],
   purpose: ['Investment','To live','Golden visa','Holiday home'],
@@ -527,6 +527,7 @@ async function bxRun(){
   while (bxQ.length) {
     const job = bxQ[0];
     try {
+      if (job.method === 'ld.junk') { await bxJunk(job.params); bxQ.shift(); bxSave(); S.bxErr = ''; continue; }
       if (job.lead && !job.params.id && !(job.params.fields && job.params.fields.ENTITY_ID)) {
         const l = S.leads.get(job.lead); const id = l ? await bxEnsure(l) : '';
         if (!id) throw {code: 'noid', message: 'The lead could not be found or created in Bitrix.'};
@@ -562,6 +563,25 @@ async function bxEnsure(l){
   return id;
 }
 const BX_SKIP = new Set(['created', 'note']);
+/* Junk: the lead is already gone from Lead Desk, so it is only looked up in Bitrix (never created), set to the Junk reason and noted */
+async function bxJunk(p){
+  let id = p.id;
+  const found = async (type, v) => { if (!v) return ''; const r = await bxCall('crm.duplicate.findbycomm', {entity_type: 'LEAD', type, values: [v]}); return (r && r.LEAD && r.LEAD[0]) ? String(r.LEAD[0]) : ''; };
+  if (!id) id = await found('PHONE', p.phone ? '+' + digits(p.phone) : '') || await found('EMAIL', p.email);
+  if (!id) return;
+  await bxCall('crm.lead.update', {id, fields: {STATUS_ID: p.status}});
+  await bxAddComment(id, bxStamp(Date.now()) + '\nJunk – ' + p.reason + ' (removed from Lead Desk)');
+}
+function doJunk(id){
+  const l = S.leads.get(id); if (!l) return;
+  const map = S.cfg.bxMap || {}, st = (S.bxStatuses || []).find(x => x.STATUS_ID === map.junk);
+  const reason = st ? st.NAME : (S.cfg.bxJunkName || 'Wrong details');
+  if (!confirm('Junk ' + (l.name || 'this lead') + '?\n\nIt is deleted from Lead Desk' + (bxOn() && map.junk ? ' and set to Junk – ' + reason + ' in Bitrix' : '') + '.')) return false;
+  if (bxOn() && map.junk) bxQueue(l, 'ld.junk', {id: bxId(l) || undefined, phone: l.phone || '', email: l.email || '', status: map.junk, reason}, 'junk');
+  S.leads.delete(id); write('leads/' + id, null, 'del');
+  if (S.lastCall && S.lastCall.id === id) { S.lastCall = null; S.afterCall = null; }
+  return true;
+}
 /* A note goes where you keep your notes in Bitrix: at the top of the lead's Comment field (newest first),
    and also on the lead's timeline */
 async function bxAddComment(id, text){
@@ -905,7 +925,7 @@ function viewMsgs(){
     <button class="btn btn-ghost" data-act="bxTest">Test connection and load my Bitrix stages</button>
     <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
     ${S.bxStatuses ? `<div class="lbl">Match the stages</div><p class="hint" style="margin:0">When you move a lead in Lead Desk, Bitrix moves it to the stage you pick here. "Don't change" leaves Bitrix as it is.</p>
-      ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost','junk'].map(k => `<div class="field"><label for="bxm_${k}">${esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
+      ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost','junk'].map(k => `<div class="field"><label for="bxm_${k}">${k === 'junk' ? 'Junk (lead is deleted from Lead Desk) – pick the reason, e.g. Wrong details' : esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
     ${S.bxStatuses ? `<div class="field"><label for="bx_in">New leads: bring in leads assigned to me from this Bitrix stage</label><select class="input" id="bx_in"><option value="">Off</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${S.cfg.bxInStage === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select>
       <div class="hint">They arrive in No answer, marked NEW, and are moved to your No answer stage in Bitrix (when automatic updates are on). Checked every 5 minutes while Lead Desk is open.</div></div>` : (S.cfg.bxInStage ? '<div class="hint">New leads are brought in from Bitrix stage ' + esc(S.cfg.bxInStage) + '. Tap Test connection to change it.</div>' : '')}
     ${S.cfg.bxInStage ? `<div class="actions"><button class="btn btn-ghost" data-act="bxPullNow">Check Bitrix for new leads now</button>${'Notification' in window && Notification.permission !== 'granted' ? '<button class="btn btn-ghost" data-act="askNotif">Turn on notifications</button>' : ''}</div>` : ''}
@@ -1217,6 +1237,8 @@ document.addEventListener('click', e => {
     case 'declined': doDeclined(id); later(() => S.focus ? advance('Declined call logged') : (toast('Declined logged · next try ' + when(S.leads.get(id).nextAt)), render())); break;
     case 'badnum': doBadNumber(id); S.focus ? advance('Number not working logged') : (toast(S.leads.get(id).stage === 'lost' ? 'Number failed 3 times – moved to Lost' : 'Logged · try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')), render()); break;
     case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k; if (l.stage === k) break;
+      if (k === 'junk') { if (!doJunk(id)) break;
+        if (S.focus) advance('Junked'); else { closeSheet(); toast('Junked – removed'); render(); } break; }
       const p = {stage: k};
       if (k === 'pool' || k === 'workshop' || k === 'junk') { p.hot = false; p.nextAt = null; p.fresh = false; }
       if (k === 'later') { p.hot = false; p.nextAt = at10(30); }
@@ -1311,6 +1333,8 @@ document.addEventListener('click', e => {
         const map = {...(S.cfg.bxMap || {})}; const norm = x => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
         const guess = {new: ['new', 'newlead', 'unprocessed'], noanswer: ['noanswer', 'notanswer'], talking: ['pipeline', 'inprogress', 'processing'], workshop: ['workshop'], pool: ['pool'], later: ['buylater', 'later'], closed: ['converted', 'closed', 'qualified'], lost: ['lost', 'notinterested'], junk: ['junk', 'spam', 'trash']};
         for (const [k, names] of Object.entries(guess)) if (!map[k]) { const hit = S.bxStatuses.find(st => names.includes(norm(st.NAME))); if (hit) map[k] = hit.STATUS_ID; }
+        { const w = S.bxStatuses.find(st => /wrong/i.test(st.NAME)); if (w && (!map.junk || map.junk === 'JUNK')) map.junk = w.STATUS_ID; }
+        const js = S.bxStatuses.find(st => st.STATUS_ID === map.junk); if (js) S.cfg.bxJunkName = js.NAME;
         S.cfg.bxMap = map;
         if (!S.cfg.bxInStage) { const hit = S.bxStatuses.find(st => /assign/i.test(st.NAME)); if (hit) S.cfg.bxInStage = hit.STATUS_ID; }
         saveCfg();
@@ -1377,7 +1401,7 @@ document.addEventListener('change', e => {
     return; }
   if (t.dataset.cfg) { const [a, b] = t.dataset.cfg.split('.'); if (b) { S.cfg[a] = {...(S.cfg[a] || {}), [b]: t.value.trim()}; } else S.cfg[a] = t.value.trim(); saveCfg(); toast('Saved'); return; }
   if (t.id === 'bx_in') { S.cfg.bxInStage = t.value; saveCfg(); toast(t.value ? 'New leads will come in from Bitrix' : 'Bringing in new leads is off'); renderView(); if (t.value) setTimeout(() => bxPull(true), 500); return; }
-  if (t.dataset.bxmap) { S.cfg.bxMap = {...(S.cfg.bxMap || {}), [t.dataset.bxmap]: t.value}; saveCfg(); toast('Saved'); return; }
+  if (t.dataset.bxmap) { S.cfg.bxMap = {...(S.cfg.bxMap || {}), [t.dataset.bxmap]: t.value}; if (t.dataset.bxmap === 'junk') { const js = (S.bxStatuses || []).find(x => x.STATUS_ID === t.value); S.cfg.bxJunkName = js ? js.NAME : ''; } saveCfg(); toast('Saved'); return; }
   if (t.dataset.tpl) { const L = S.tplLang; S.cfg.templates = S.cfg.templates || {}; S.cfg.templates[L] = {...(S.cfg.templates[L] || {}), [t.dataset.tpl]: t.value}; saveCfg(); toast('Template saved'); return; }
   if (t.id === 'meet_dt') { S.form.dt = t.value; S.form.quick = null; }
   if (t.id === 'meet_email') S.form.email = t.value.trim();
