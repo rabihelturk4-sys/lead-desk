@@ -694,6 +694,12 @@ function viewMsgs(){
     </div>
   </div>
   <div class="card form">
+    <h3>AI picture reading</h3>
+    <p class="hint" style="margin:0">Paste an AI key to read photos of screens, handwriting and Arabic correctly. A Google Gemini key (free) starts with "AIza", get one at aistudio.google.com/apikey. A Claude key starts with "sk-ant-". The key is saved on this device only – add it on your phone and your laptop.</p>
+    <input class="input" id="ai_key" type="password" autocomplete="off" placeholder="Paste your key here" value="${esc(aiKey())}">
+    <div class="hint" id="ai_state">${aiProvider(aiKey()) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(aiKey()) === 'claude' ? '✓ Claude key saved – photos are read with AI' : aiKey() ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone (screenshots only work well).'}</div>
+  </div>
+  <div class="card form">
     <h3>Account and backup</h3>
     <p class="hint" style="margin:0">Signed in as <b>${esc(fbUser ? (fbUser.email || fbUser.displayName || '') : '')}</b>. Your leads are stored in your own Firebase database and saved on this device for offline use.</p>
     <div class="actions"><button class="btn btn-ghost" data-act="exportAll">Download backup</button><label class="btn btn-ghost" for="imp_file">Import backup file</label></div>
@@ -1064,6 +1070,8 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; renderLeadList(); return; }
   if (t.id === 'paste_box') { S.pasteText = t.value; return; }
+  if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {}
+    const st = $('#ai_state'); if (st) st.textContent = aiProvider(k) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(k) === 'claude' ? '✓ Claude key saved – photos are read with AI' : k ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone.'; return; }
   if (t.id === 'test_num') { try { localStorage.setItem('testNum', t.value); } catch (e) {} const box = $('#callTests'); if (box) box.innerHTML = CALL_MODES.map(([k, l]) => telLink(t.value || '0', 'chip', 'Test ' + l, k)).join(''); return; }
   if (S.tab === 'add' && t.closest('#view')) {
     const map = {f_phone:'phone', f_name:'name', f_email:'email', f_project:'project', f_note:'note'}; if (map[t.id]) S.draft[map[t.id]] = t.value;
@@ -1283,6 +1291,61 @@ function saveLead(then){
 }
 
 document.addEventListener('paste', e => { if (e.target && e.target.id === 'paste_box') setTimeout(() => { const b = document.querySelector('[data-act="parsePaste"]'); if (b) b.click(); }, 50); });
+/* ---------- AI picture reading (optional, with the user's own key, kept on this device only) ---------- */
+const aiKey = () => { try { return (localStorage.getItem('aiKey') || '').trim(); } catch (e) { return ''; } };
+const aiProvider = k => /^sk-ant-/.test(k) ? 'claude' : /^AIza/.test(k) ? 'gemini' : '';
+const AI_PROMPT = 'This picture shows details about a real estate lead: a CRM screen (for example Bitrix, often photographed from a computer screen), a business card, a form, a WhatsApp chat or a handwritten note. '
+  + 'Copy out the useful text exactly as written, one item per line, in this order: the phone number alone on the first line (digits exactly as shown, with the + and country code if visible), '
+  + 'then "Name: <full name>", then the email alone on its own line, then the source (Facebook, Website…), lead number, project or campaign, and every date and comment or note, each on its own line. '
+  + 'Read faint or grey text too. Translate nothing. If something is not visible, leave it out. Write only the copied text, no explanations.';
+async function photoBase64(file){
+  const bmp = await createImageBitmap(file, {imageOrientation: 'from-image'});
+  const sc = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.88).split(',')[1];
+}
+let anthropicMod = null;
+async function aiRead(file){
+  const key = aiKey(), prov = aiProvider(key), data = await photoBase64(file);
+  if (prov === 'claude') {
+    anthropicMod = anthropicMod || await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.133.0/+esm');
+    const Anthropic = anthropicMod.default;
+    const client = new Anthropic({apiKey: key, dangerouslyAllowBrowser: true});
+    try {
+      const msg = await client.beta.messages.create({
+        model: 'claude-opus-5-5', max_tokens: 4000, output_config: {effort: 'low'},
+        betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
+        messages: [{role: 'user', content: [{type: 'image', source: {type: 'base64', media_type: 'image/jpeg', data}}, {type: 'text', text: AI_PROMPT}]}]});
+      if (msg.stop_reason === 'refusal') throw {code: 'refused'};
+      return msg.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    } catch (e) {
+      if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw {code: 'key'};
+      if (e instanceof Anthropic.RateLimitError) throw {code: 'busy'};
+      if (e instanceof Anthropic.APIConnectionError) throw {code: 'net'};
+      throw e;
+    }
+  }
+  for (const model of ['gemini-flash-latest', 'gemini-2.5-flash']) {
+    let r;
+    try {
+      r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contents: [{parts: [{inline_data: {mime_type: 'image/jpeg', data}}, {text: AI_PROMPT}]}]})});
+    } catch (e) { throw {code: 'net'}; }
+    if (r.status === 404) continue;
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 400 || r.status === 401 || r.status === 403) throw {code: 'key', message: j.error && j.error.message};
+    if (r.status === 429) throw {code: 'busy'};
+    if (!r.ok) throw {code: 'other', message: j.error && j.error.message};
+    const text = ((j.candidates || [])[0]?.content?.parts || []).map(x => x.text || '').join('');
+    if (!text.trim()) throw {code: 'empty'};
+    return text;
+  }
+  throw {code: 'other'};
+}
+const AI_ERR = {key: 'The AI key was not accepted. Check it in Messages → AI picture reading.', busy: 'The AI is busy or your free limit is used up for now. Try again in a minute.',
+  net: 'No internet connection.', refused: 'The AI could not read this picture. Try another photo.', empty: 'No text found in this picture.'};
+
 /* ---------- read a photo on the device (Tesseract OCR, loaded on first use) ---------- */
 /* Prepare a photo for reading: right way up, 1600–2400 px wide, grey, dark screens turned light, contrast stretched */
 async function prepImage(file){
@@ -1316,6 +1379,17 @@ document.addEventListener('change', async e => {
   const inp = e.target; if (inp.id !== 'photo_cam' && inp.id !== 'photo_pick') return;
   const file = inp.files && inp.files[0]; inp.value = ''; if (!file) return;
   const res = $('#paste_res');
+  if (aiProvider(aiKey())) {
+    res.innerHTML = '<div class="brief"><div class="brief-label">Reading the picture with AI…</div><div class="hint">Usually 3–10 seconds.</div></div>';
+    try {
+      const text = await aiRead(file);
+      const box = $('#paste_box'); const merged = ((box && box.value.trim()) ? box.value.trim() + '\n\n' : '') + text.trim();
+      S.pasteText = merged; if (box) box.value = merged;
+      S.paste = parsePaste(merged);
+      res.innerHTML = S.paste.length ? pasteResult() : '<div class="banner">I read the picture but found no phone number or email. Check the text in the box, add the number and press Sort it out.</div>';
+    } catch (err) { res.innerHTML = `<div class="banner">${esc(AI_ERR[err && err.code] || ('Could not read the picture: ' + ((err && err.message) || 'try again.')))}</div>`; }
+    return;
+  }
   res.innerHTML = '<div class="brief"><div class="brief-label">Reading the picture…</div><div class="hint" id="ocr_prog">The first time takes a little longer (the reader downloads once).</div></div>';
   try {
     const T = await loadOcr();
