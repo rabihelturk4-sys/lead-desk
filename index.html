@@ -1052,7 +1052,7 @@ function viewMsgs(){
     ${chipGroup('autoNaMail', [['0','Off'],['1','Email the client automatically after the 3rd No answer']], S.cfg.autoNaMail ? '1' : '0', 'setAutoNaMail')}
     <div class="hint">The final email is sent once per lead, after the 3rd No answer, from your Zoho mailbox within about 5–15 minutes, in the lead's language, with your business card. Edit the text in Messages → "Final email after 3rd No answer".${S.sync && S.sync.mailRun ? ` Last emails: ${S.sync.mailSent || 0} sent ${ago(S.sync.mailRun)}${S.sync.mailError ? ' – problem: ' + esc(S.sync.mailError) : ' ✓'}` : ''}${S.sync && S.sync.alertsRun ? ` Client replies checked ${ago(S.sync.alertsRun)}${S.sync.imapError ? ' – problem: ' + esc(S.sync.imapError) : ' ✓'}` : ''}</div>
     <div class="field"><span class="lbl">Follow-up email 3 days after "Options shared", "Brochure sent" or "Payment plan sent" (not sent if you talk before)</span>${chipGroup('autoFollow', [['1','On'],['0','Off']], autoOn('autoFollow') ? '1' : '0', 'setAuto')}</div>
-    <div class="field"><span class="lbl">Monthly update email to Pool and Buy later leads (uses this week's project, max 20 a day)</span>${chipGroup('autoMonthly', [['1','On'],['0','Off']], autoOn('autoMonthly') ? '1' : '0', 'setAuto')}</div>
+    <div class="field"><span class="lbl">Monthly update email to Pool and Buy later leads (uses this week's project, max 20 a day)</span>${chipGroup('autoMonthly', [['1','On'],['0','Off']], S.cfg.autoMonthly === true ? '1' : '0', 'setAuto')}</div>
     <div class="field"><span class="lbl">Calendar invite by email when you book a meeting</span>${chipGroup('autoInvite', [['1','On'],['0','Off']], autoOn('autoInvite') ? '1' : '0', 'setAuto')}</div>
     <button class="btn btn-ghost" data-act="testNaMail">Send a test of the final email to me (${esc(myEmail())})</button>
     <div class="field"><span class="lbl">Business card</span>${S.cfg.cardName ? `<div class="hint">✓ ${esc(S.cfg.cardName)} – attached to the automatic emails</div>${S.cardPreview ? `<img src="${S.cardPreview}" alt="Business card" style="max-width:100%;border-radius:8px">` : ''}` : '<div class="hint">No card yet – add a photo/image or PDF of your business card.</div>'}
@@ -1336,7 +1336,7 @@ function meetingIcs(l){
 }
 /* Monthly update to Pool and Buy later leads (max 20 a day, not to anyone contacted in the last week, never after "stop") */
 function queueMonthly(){
-  if (!S.ready || !S.cfgLoaded || !autoOn('autoMonthly')) return;
+  if (!S.ready || !S.cfgLoaded || S.cfg.autoMonthly !== true) return;   /* off until you turn it on */
   const day = new Date().toDateString(); let n = S.cfg.monthlyDay === day ? S.cfg.monthlyCount || 0 : 0; const now = Date.now(); let added = 0;
   for (const l of S.leads.values()) {
     if (n >= 20) break;
