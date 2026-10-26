@@ -253,7 +253,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const H = 3600e3, D = 24 * H;
 
-const STAGES = [['new','New'],['noanswer','No answer'],['talking','Pipeline'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost']];
+const STAGES = [['new','New'],['noanswer','No answer'],['talking','Pipeline'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost'],['junk','Junk']];
 /* Best call windows in Dubai time, by the lead's dialling code */
 const WIN_GROUPS = [
   [['971','968','974','965','973','966','962','961','20'], [[11,13],[16,19]], 'Gulf'],
@@ -377,7 +377,7 @@ function when(t){ if (!t) return '—'; const d = new Date(t), n = new Date(); c
   const y = new Date(n); y.setDate(n.getDate() - 1); if (d.toDateString() === y.toDateString()) return 'Yesterday ' + tm;
   return d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'}) + ' ' + tm; }
 const endToday = () => { const d = new Date(); d.setHours(23,59,59,999); return d.getTime(); };
-const isOpen = l => !['closed','lost','later','pool','workshop'].includes(l.stage);
+const isOpen = l => !['closed','lost','junk','later','pool','workshop'].includes(l.stage);
 /* How this lead may be contacted (a contact preference, not a stage) */
 const WAYS = [['any','Calls + WhatsApp'],['wa','WhatsApp only'],['call','Calls only'],['sms','SMS only']];
 const WAY = Object.fromEntries(WAYS);
@@ -905,7 +905,7 @@ function viewMsgs(){
     <button class="btn btn-ghost" data-act="bxTest">Test connection and load my Bitrix stages</button>
     <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
     ${S.bxStatuses ? `<div class="lbl">Match the stages</div><p class="hint" style="margin:0">When you move a lead in Lead Desk, Bitrix moves it to the stage you pick here. "Don't change" leaves Bitrix as it is.</p>
-      ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost'].map(k => `<div class="field"><label for="bxm_${k}">${esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
+      ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost','junk'].map(k => `<div class="field"><label for="bxm_${k}">${esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
     ${S.bxStatuses ? `<div class="field"><label for="bx_in">New leads: bring in leads assigned to me from this Bitrix stage</label><select class="input" id="bx_in"><option value="">Off</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${S.cfg.bxInStage === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select>
       <div class="hint">They arrive in No answer, marked NEW, and are moved to your No answer stage in Bitrix (when automatic updates are on). Checked every 5 minutes while Lead Desk is open.</div></div>` : (S.cfg.bxInStage ? '<div class="hint">New leads are brought in from Bitrix stage ' + esc(S.cfg.bxInStage) + '. Tap Test connection to change it.</div>' : '')}
     ${S.cfg.bxInStage ? `<div class="actions"><button class="btn btn-ghost" data-act="bxPullNow">Check Bitrix for new leads now</button>${'Notification' in window && Notification.permission !== 'granted' ? '<button class="btn btn-ghost" data-act="askNotif">Turn on notifications</button>' : ''}</div>` : ''}
@@ -1043,7 +1043,7 @@ function outcomeBar(l){
     <div class="hint">Tap a quick update to save it at once. Anything you typed in the box is saved with it.</div>
   </div>
   <div class="lbl">Move to</div>
-  <div class="movebar">${[['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
+  <div class="movebar">${[['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later'],['junk','Junk']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
 `;
 }
 
@@ -1218,12 +1218,12 @@ document.addEventListener('click', e => {
     case 'badnum': doBadNumber(id); S.focus ? advance('Number not working logged') : (toast(S.leads.get(id).stage === 'lost' ? 'Number failed 3 times – moved to Lost' : 'Logged · try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')), render()); break;
     case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k; if (l.stage === k) break;
       const p = {stage: k};
-      if (k === 'pool' || k === 'workshop') { p.hot = false; p.nextAt = null; }
+      if (k === 'pool' || k === 'workshop' || k === 'junk') { p.hot = false; p.nextAt = null; p.fresh = false; }
       if (k === 'later') { p.hot = false; p.nextAt = at10(30); }
       if (k === 'noanswer') p.nextAt = nextWindowAt(l);
       if (k === 'talking' && (!l.nextAt || l.nextAt < Date.now())) p.nextAt = at10(1);
       patchLead(id, p, {k:'stage', txt:'Moved to ' + STAGE[k]}, {quiet: true});
-      if (S.focus && (k === 'pool' || k === 'later' || k === 'workshop')) advance('Moved to ' + STAGE[k]);
+      if (S.focus && (k === 'pool' || k === 'later' || k === 'workshop' || k === 'junk')) advance('Moved to ' + STAGE[k]);
       else { toast('Moved to ' + STAGE[k] + (p.nextAt ? ' · next ' + when(p.nextAt) : '')); render(); }
       break; }
     case 'setWay': { const l = S.leads.get(id), k = t.dataset.k; if (contactWay(l) === k) break;
@@ -1261,7 +1261,7 @@ document.addEventListener('click', e => {
     case 'saveTalk': { const l = S.leads.get(id), F = S.form; const said = F.said || []; const temp = F.temp || 'Warm';
       const note = ($('#talk_note').value || '').trim();
       const todos = said.map(x => TODO_MAP[x]).filter(Boolean);
-      let stage = l.stage; if (temp === 'Hot' && ['new','noanswer','talking'].includes(stage)) stage = 'hot'; else if (['new','noanswer','lost'].includes(stage)) stage = 'talking'; else if (temp !== 'Hot' && stage === 'hot') stage = 'talking';
+      let stage = l.stage; if (temp === 'Hot' && ['new','noanswer','talking'].includes(stage)) stage = 'hot'; else if (['new','noanswer','lost','junk'].includes(stage)) stage = 'talking'; else if (temp !== 'Hot' && stage === 'hot') stage = 'talking';
       patchLead(id, {stage, hot: temp === 'Hot', lastOutcome: 'talk', badNumber: 0, rule: l.rule && /^Number not working/.test(l.rule) ? '' : (l.rule || ''), said, todo: todos.length ? [...new Set(todos)].join(', ') : (l.todo || ''), noAnswer: 0, lastAt: Date.now(), nextAt: NEXT_FN[F.next || '3']()},
         {k:'talk', txt: `Talked (${temp.toLowerCase()})` + (said.length ? ': ' + said.join(', ') : '') + (note ? ' – ' + note : '')}, {quiet: true});
       S.focus ? advance('Call saved') : (closeSheet(), toast('Saved · next follow-up ' + when(S.leads.get(id).nextAt)), render()); break; }
@@ -1276,7 +1276,7 @@ document.addEventListener('click', e => {
     case 'waConfirm': { const ch = t.dataset.ch || 'wa'; patchLead(id, {}, {k: ch, txt: CH[ch] + ' sent: meeting ' + (S.leads.get(id).meetLink ? 'link' : 'confirmation')}, {quiet: true}); later(() => toast('Logged')); break; }
     case 'nextAfterMeet': advance('Meeting saved'); break;
     case 'setField': { const l = S.leads.get(id), g = t.dataset.g, v = t.dataset.v;
-      if (g === 'stage') patchLead(id, {stage: v, hot: ['hot','meeting','nego'].includes(v) ? true : (['lost','closed'].includes(v) ? false : l.hot), ...(v === 'closed' ? {nextAt: null} : {})}, {k:'stage', txt:'Stage → ' + STAGE[v]});
+      if (g === 'stage') patchLead(id, {stage: v, hot: ['hot','meeting','nego'].includes(v) ? true : (['lost','closed','junk'].includes(v) ? false : l.hot), ...(v === 'closed' || v === 'junk' ? {nextAt: null, fresh: false} : {})}, {k:'stage', txt:'Stage → ' + STAGE[v]});
       else patchLead(id, {[g]: l[g] === v && g !== 'lang' ? null : v}); break; }
     case 'setNext': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); toast('Follow-up set'); break;
     case 'askDel': S.confirmDel = true; renderSheet(); break;
@@ -1309,7 +1309,7 @@ document.addEventListener('click', e => {
       bxCall('crm.status.list', {order: {SORT: 'ASC'}, filter: {ENTITY_ID: 'STATUS'}}, h).then(list => {
         S.bxStatuses = list || [];
         const map = {...(S.cfg.bxMap || {})}; const norm = x => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
-        const guess = {new: ['new', 'newlead', 'unprocessed'], noanswer: ['noanswer', 'notanswer'], talking: ['pipeline', 'inprogress', 'processing'], workshop: ['workshop'], pool: ['pool'], later: ['buylater', 'later'], closed: ['converted', 'closed', 'qualified'], lost: ['junk', 'lost', 'notinterested']};
+        const guess = {new: ['new', 'newlead', 'unprocessed'], noanswer: ['noanswer', 'notanswer'], talking: ['pipeline', 'inprogress', 'processing'], workshop: ['workshop'], pool: ['pool'], later: ['buylater', 'later'], closed: ['converted', 'closed', 'qualified'], lost: ['lost', 'notinterested'], junk: ['junk', 'spam', 'trash']};
         for (const [k, names] of Object.entries(guess)) if (!map[k]) { const hit = S.bxStatuses.find(st => names.includes(norm(st.NAME))); if (hit) map[k] = hit.STATUS_ID; }
         S.cfg.bxMap = map;
         if (!S.cfg.bxInStage) { const hit = S.bxStatuses.find(st => /assign/i.test(st.NAME)); if (hit) S.cfg.bxInStage = hit.STATUS_ID; }
