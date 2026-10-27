@@ -43,7 +43,10 @@ export function topComment(comments){
   const t = String(comments || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/\r/g, '').trim();
   return t.split(/\n\s*\n/)[0].trim();
 }
-export const ownComment = (block, history) => { const body = block.replace(/^\d{2}-\d{2}-\d{4} \d{2},\d{2}\n/, '').trim(); return !body || /Lead Desk/.test(body) || (history || []).some(h => (h.txt || '').trim() === body); };
+export const ownComment = (block, history, known = '') => { const body = block.replace(/^\d{2}-\d{2}-\d{4} \d{2},\d{2}\n/, '').trim(); const flat = x => String(x || '').replace(/\s+/g, ' ').trim();
+  return !body || /Lead Desk/.test(body) || flat(known).includes(flat(body)) || (history || []).some(h => { const t = flat(h.txt).replace(/^Bitrix comment: /, ''); return t === flat(body) || t.startsWith(flat(body).slice(0, 200)); }); };
+/* Text of a Bitrix timeline comment without BB-code / HTML */
+export const plainComment = c => String(c || '').replace(/\[\/?[a-z]+[^\]]*\]/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\r/g, '').trim();
 
 async function bx(hook, method, params){
   const r = await fetch(hook + method + '.json', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: form(params || {})});
@@ -172,7 +175,7 @@ async function main(){
           else if (['later', 'pool'].includes(l.stage) && dated && Math.abs(bxDate - (l.nextAt || 0)) > D) {   /* date changed in Bitrix */
             Object.assign(patch, {nextAt: bxDate, needDate: false}); notesHere.push('Contact again date changed in Bitrix → ' + dubaiDay(bxDate)); }
           const top = topComment(b.COMMENTS);
-          if (top && top !== l.bxTop) { patch.bxTop = top; if (l.bxTop !== undefined && !ownComment(top, l.history)) notesHere.push('Bitrix comment: ' + top.slice(0, 500)); }
+          if (top && top !== l.bxTop) { patch.bxTop = top; if (!ownComment(top, l.history, (l.crm || '') + ' ' + (l.note || ''))) notesHere.push('Bitrix comment: ' + top.slice(0, 500)); }
           if (!Object.keys(patch).length) continue;
           if (notesHere.length) patch.history = admin.firestore.FieldValue.arrayUnion(...notesHere.map(txt => ({t: Date.now(), k: 'note', txt})));
           await leadsRef.doc(l.id).update(patch); if (notesHere.length) changed++;
@@ -180,6 +183,27 @@ async function main(){
         set.bxBackAt = now; if (changed) notes.push(changed + ' leads updated from Bitrix');
       }
     } catch (e) { notes.push('Bitrix read problem: ' + e.message); }
+
+    /* Comments you add on the lead's timeline in Bitrix → Lead Desk (50 leads per Bitrix call; the first look only remembers what is there) */
+    try {
+      const linked = leads.filter(l => (l.bxId || l.leadNo) && !['junk'].includes(l.stage)); let added = 0;
+      for (let i = 0; i < linked.length; i += 50) {
+        const part = linked.slice(i, i + 50), cmd = {};
+        for (const l of part) cmd['c' + l.id.replace(/\W/g, '_')] = 'crm.timeline.comment.list?' + new URLSearchParams({'filter[ENTITY_ID]': String(l.bxId || l.leadNo), 'filter[ENTITY_TYPE]': 'lead'}).toString();
+        const res = ((await bx(hook, 'batch', {halt: 0, cmd})).result || {}).result || {};
+        for (const l of part) {
+          const list = res['c' + l.id.replace(/\W/g, '_')]; if (!Array.isArray(list) || !list.length) continue;
+          const max = Math.max(...list.map(c => +c.ID || 0)); if (l.bxCmtMax === max) continue;
+          const fresh = l.bxCmtMax === undefined ? [] : list.filter(c => +c.ID > l.bxCmtMax).sort((a, b) => a.ID - b.ID);
+          const texts = fresh.map(c => plainComment(c.COMMENT)).filter(t => t && !ownComment(t, l.history, (l.crm || '') + ' ' + (l.note || '')));
+          const patch = {bxCmtMax: max};
+          if (texts.length) { patch.history = admin.firestore.FieldValue.arrayUnion(...texts.map((txt, k) => ({t: Date.now() + k, k: 'note', txt: 'Bitrix comment: ' + txt.slice(0, 1000)}))); added += texts.length; }
+          await leadsRef.doc(l.id).update(patch);
+        }
+        await new Promise(r => setTimeout(r, 600));
+      }
+      if (added) notes.push(added + ' Bitrix comments copied');
+    } catch (e) { notes.push('Bitrix comments problem: ' + e.message); }
   }
 
   set.alertsRun = now;
