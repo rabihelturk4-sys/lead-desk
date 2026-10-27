@@ -906,8 +906,8 @@ function viewToday(){
   const meets = all.filter(l => l.stage === 'meeting' && l.meetingAt && l.meetingAt > n - 3*H && l.meetingAt < n + 3*D).sort((a, b) => a.meetingAt - b.meetingAt);
   const fresh = all.filter(l => l.fresh).sort((a, b) => (b.freshAt || 0) - (a.freshAt || 0));
   const neu = all.filter(l => isNew(l) && !l.fresh).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  const laterBack = all.filter(l => l.stage === 'later' && isDue(l)).sort(byNext);
-  const due = all.filter(l => isDue(l) && !atRisk(l) && !isNew(l) && l.stage !== 'later').sort(byNext);
+  const laterBack = all.filter(l => ['later','pool'].includes(l.stage) && isDue(l)).sort(byNext);
+  const due = all.filter(l => isDue(l) && !atRisk(l) && !isNew(l) && !['later','pool'].includes(l.stage)).sort(byNext);
   const nowList = [...risk, ...due, ...neu].filter(l => winOpen(l) && isOpen(l));
   const forgot = all.filter(isForgotten).sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0));
   const dh = dubaiHour();
@@ -931,7 +931,7 @@ function viewToday(){
   ${section('due', 'Follow-ups due today', due, all.length ? 'No follow-ups left for today.' : '')}
   ${section('new', 'New leads, not contacted', neu, '')}
   ${section('hot', 'Forgotten – no contact for 14+ days', forgot, '')}
-  ${section('due', 'Buy later – time to contact again', laterBack, '')}
+  ${section('due', 'Buy later & Pool – time to contact again', laterBack, '')}
   ${(() => { const n = waMonthlyDue().length; return n ? `<section><button class="btn btn-ghost btn-big" data-act="startWaRun">📣 Monthly WhatsApp to Pool &amp; Buy later · ${n} lead${n > 1 ? 's' : ''}</button></section>` : ''; })()}
   ${all.length ? '' : `<div class="empty">No leads yet. Tap <b>Add lead</b> below to add your first one. It takes about 10 seconds.</div>`}`;
 }
@@ -1226,10 +1226,10 @@ function renderSheet(){
   let h = '';
   if (s.type === 'laterdate') {
     const min = new Date(Date.now() + D).toISOString().slice(0, 10);
-    h = head('Buy later – ' + esc(l.name || ''), 'When should you contact them again?')
-      + `<div class="form"><div class="chips">${[['30','1 month'],['60','2 months'],['90','3 months'],['180','6 months'],['365','1 year']].map(([v, t]) => `<button class="chip" data-act="laterPick" data-id="${l.id}" data-v="${v}">${t}</button>`).join('')}</div>
+    h = head(esc(STAGE[s.stage] || 'Buy later') + ' – ' + esc(l.name || ''), 'When should you contact them again?')
+      + `<div class="form"><div class="chips">${[['30','1 month'],['60','2 months'],['90','3 months'],['180','6 months'],['365','1 year']].map(([v, t]) => `<button class="chip" data-act="laterPick" data-id="${l.id}" data-st="${s.stage || 'later'}" data-v="${v}">${t}</button>`).join('')}</div>
         <div class="field"><label for="later_dt">Or pick a date</label><input class="input" type="date" id="later_dt" min="${min}"></div>
-        <button class="btn btn-primary" data-act="laterSave" data-id="${l.id}">Save date</button></div>`;
+        <button class="btn btn-primary" data-act="laterSave" data-id="${l.id}" data-st="${s.stage || 'later'}">Save date</button></div>`;
   } else if (s.type === 'warun') {
     const r = S.waRun || {q: [l.id], i: 0}, txt = tplText(l.lang || 'en', 'monthly_wa', l);
     h = head(`Monthly WhatsApp ${r.i + 1} of ${r.q.length}`, `${esc(l.flag || '')} ${esc(l.name || '')} · ${esc(STAGE[l.stage])} · last contact ${esc(lastContact(l))}`)
@@ -1393,12 +1393,12 @@ function doBadNumber(id){
   if (n >= 3) { p.stage = 'lost'; p.hot = false; p.nextAt = null; }
   patchLead(id, p, {k:'badnum', txt: 'Number not working (' + n + 'x)' + (n >= 3 ? ' – moved to Lost' : '')}, {quiet: true});
 }
-/* Buy later always has a date: the lead comes back on Today on that day */
-function doLater(id, at){
+/* Buy later and Pool always have a date: the lead comes back on Today on that day */
+function doLater(id, at, stage = 'later'){
   const l = S.leads.get(id); if (!l) return;
   const day = new Date(at).toLocaleDateString([], {day: 'numeric', month: 'short', year: 'numeric'});
-  patchLead(id, {stage: 'later', hot: false, fresh: false, nextAt: at}, {k: 'stage', txt: 'Moved to Buy later – contact again ' + day}, {quiet: true});
-  if (S.focus) advance('Buy later · back on ' + day); else { closeSheet(); toast('Buy later · back on Today ' + day); render(); }
+  patchLead(id, {stage, hot: false, fresh: false, nextAt: at}, {k: 'stage', txt: `Moved to ${STAGE[stage]} – contact again ` + day}, {quiet: true});
+  if (S.focus) advance(STAGE[stage] + ' · back on ' + day); else { closeSheet(); toast(STAGE[stage] + ' · back on Today ' + day); render(); }
 }
 function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(), nextAt: at10(90), noAnswer: 0}, {k:'stage', txt:'Not interested – re-engage in 3 months'}, {quiet: true}); }
 
@@ -1414,8 +1414,8 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
-    case 'laterPick': { const d = new Date(); d.setDate(d.getDate() + +t.dataset.v); d.setHours(10, 0, 0, 0); doLater(id, d.getTime()); break; }
-    case 'laterSave': { const v = ($('#later_dt') || {}).value; if (!v) { toast('Pick a date'); break; } const d = new Date(v + 'T10:00'); if (d.getTime() < Date.now()) { toast('Pick a date in the future'); break; } doLater(id, d.getTime()); break; }
+    case 'laterPick': { const d = new Date(); d.setDate(d.getDate() + +t.dataset.v); d.setHours(10, 0, 0, 0); doLater(id, d.getTime(), t.dataset.st); break; }
+    case 'laterSave': { const v = ($('#later_dt') || {}).value; if (!v) { toast('Pick a date'); break; } const d = new Date(v + 'T10:00'); if (d.getTime() < Date.now()) { toast('Pick a date in the future'); break; } doLater(id, d.getTime(), t.dataset.st); break; }
     case 'startWaRun': startWaRun(); break;
     case 'waRunSend': patchLead(id, monthlyMark(S.leads.get(id)), {k: 'wa', txt: 'Monthly WhatsApp update sent'}, {quiet: true}); S.waRun && S.waRun.sent++; later(waRunNext); break;
     case 'waRunSkip': waRunNext(); break;
@@ -1452,8 +1452,8 @@ document.addEventListener('click', e => {
     case 'noansMsg': { const ch = t.dataset.ch || 'wa'; doNoAnswer(id, ch); later(() => S.focus ? advance(`No answer + ${CH[ch]} logged`) : (toast('Logged · follow-up set'), render())); break; }
     case 'declined': doDeclined(id); later(() => S.focus ? advance('Declined call logged') : (toast('Declined logged · next try ' + when(S.leads.get(id).nextAt)), render())); break;
     case 'badnum': doBadNumber(id); S.focus ? advance('Number not working logged') : (toast(S.leads.get(id).stage === 'lost' ? 'Number failed 3 times – moved to Lost' : 'Logged · try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')), render()); break;
-    case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k; if (l.stage === k && k !== 'later') break;
-      if (k === 'later') { openSheet('laterdate', id); break; }
+    case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k; if (l.stage === k && k !== 'later' && k !== 'pool') break;
+      if (k === 'later' || k === 'pool') { openSheet('laterdate', id, {stage: k}); break; }
       if (k === 'junk') { if (!doJunk(id)) break;
         if (S.focus) advance('Junked'); else { closeSheet(); toast('Junked – removed'); render(); } break; }
       const p = {stage: k};
@@ -1517,7 +1517,7 @@ document.addEventListener('click', e => {
     case 'waConfirm': { const ch = t.dataset.ch || 'wa'; patchLead(id, {}, {k: ch, txt: CH[ch] + ' sent: meeting ' + (S.leads.get(id).meetLink ? 'link' : 'confirmation')}, {quiet: true}); later(() => toast('Logged')); break; }
     case 'nextAfterMeet': advance('Meeting saved'); break;
     case 'setField': { const l = S.leads.get(id), g = t.dataset.g, v = t.dataset.v;
-      if (g === 'stage' && v === 'later') { openSheet('laterdate', id); break; }
+      if (g === 'stage' && (v === 'later' || v === 'pool')) { openSheet('laterdate', id, {stage: v}); break; }
       if (g === 'stage') patchLead(id, {stage: v, hot: ['hot','meeting','nego'].includes(v) ? true : (['lost','closed','junk'].includes(v) ? false : l.hot), ...(v === 'closed' || v === 'junk' ? {nextAt: null, fresh: false} : {})}, {k:'stage', txt:'Stage → ' + STAGE[v]});
       else patchLead(id, {[g]: l[g] === v && g !== 'lang' ? null : v}); break; }
     case 'setNext': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); toast('Follow-up set'); break;
