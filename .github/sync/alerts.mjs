@@ -2,7 +2,7 @@
    - morning summary at 9:00 Dubai
    - hot lead going cold (no contact for 2 days), max once a day per lead
    - meeting reminders: the day before and 1 hour before
-   - client replied by email (Zoho inbox) → alert, comment, lead back to Pipeline
+   - client replied by email (Zoho inbox) → alert, comment, lead back to Contacted
    - changes made in Bitrix (stage, new comment) → copied into Lead Desk */
 import {form} from './bitrix-sync.mjs';
 const H = 3600e3, D = 24 * H;
@@ -11,6 +11,7 @@ const dubaiDay = t => dubai(t).toISOString().slice(0, 10);
 const hhmm = t => dubai(t).toISOString().slice(11, 16);
 const stamp = t => { const d = dubai(t), z = n => String(n).padStart(2, '0'); return `${z(d.getUTCDate())}-${z(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${z(d.getUTCHours())},${z(d.getUTCMinutes())}`; };
 const CLOSED = ['closed', 'lost', 'junk', 'later', 'pool', 'workshop'];
+const NAMES = {new: 'New', noanswer: 'No answer', talking: 'Contacted', hot: 'HOT', meeting: 'Meeting booked', nego: 'Negotiation', later: 'Buy later', pool: 'Pool', workshop: 'Workshop', closed: 'Closed', lost: 'Lost'};
 export const isOpen = l => !CLOSED.includes(l.stage);
 export const isHot = l => !!l.hot || ['hot', 'meeting', 'nego'].includes(l.stage);
 export const goingCold = (l, now) => isOpen(l) && isHot(l) && (!l.lastAt || l.lastAt < now - 2 * D) && !(l.nextAt && l.nextAt > now);
@@ -128,13 +129,13 @@ async function main(){
             const src = await imap.download(String(f.uid), undefined, {uid: true}); const parsed = await simpleParser(src.content);
             const words = replySnippet(parsed.text) || f.subject, stop = /^\s*(stop|stopp|unsubscribe)\b/i.test(words), l = f.l;
             const toPipeline = !stop && ['new', 'noanswer', 'pool', 'later', 'workshop', 'lost'].includes(l.stage);
-            const patch = {lastAt: f.date, history: hist('Client replied by email: ' + words, 'email'), ...(stop ? {unsub: true} : {}), ...(toPipeline ? {stage: 'talking', nextAt: now, fresh: false} : {})};
+            const patch = {lastAt: f.date, history: hist('Client replied by email: ' + words, 'email'), ...(stop ? {unsub: true} : {}), ...(toPipeline ? {stage: 'talking', stageAt: now, nextAt: now, fresh: false, ...((cfg.bxReq || []).some(q => !(l.bxReq || {})[q.id]) ? {bxReqPending: 'talking'} : {})} : {})};
             await leadsRef.doc(l.id).update(patch);
             await push(stop ? `${l.name} asked to stop emails` : `✉️ ${l.name || from} replied`, stop ? 'No more update emails will be sent.' : words.slice(0, 140), './?lead=' + l.id);
             const bid = l.bxId || l.leadNo;
             if (hasHook && bid) {
               await bxComment(bid, stamp(now) + '\nClient replied by email: ' + words).catch(e => console.log('bitrix comment: ' + e.message));
-              if (toPipeline && map.talking) await bx(hook, 'crm.lead.update', {id: bid, fields: {STATUS_ID: map.talking}}).catch(() => {});
+              if (toPipeline && map.talking) await bx(hook, 'crm.lead.update', {id: bid, fields: {STATUS_ID: map.talking, ...(l.bxReq || {})}}).catch(() => {});
             }
           }
           set.imapUid = next; if (found.length) notes.push(found.length + ' replies');
@@ -162,7 +163,8 @@ async function main(){
           const patch = {}, notesHere = [];
           const fits = Object.keys(map).filter(k => k !== 'junk' && map[k] === b.STATUS_ID);
           const bxDate = cfg.bxDateField && b[cfg.bxDateField] ? Date.parse(b[cfg.bxDateField]) : NaN, dated = bxDate > now;
-          if (fits.length && !fits.includes(l.stage)) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + fits[0]);
+          const fresh = (l.stageAt && l.stageAt > now - 2 * H) || l.bxReqPending;                /* you changed it in Lead Desk just now: Lead Desk wins */
+          if (fits.length && !fits.includes(l.stage) && !fresh) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + (NAMES[fits[0]] || fits[0]));
             if (['later', 'pool'].includes(fits[0])) {                 /* use the next contact date from Bitrix, or Lead Desk asks for one */
               Object.assign(patch, {hot: false, needDate: !dated, nextAt: dated ? bxDate : null});
               if (dated) notesHere.push('Contact again ' + dubaiDay(bxDate) + ' (date from Bitrix)'); } }

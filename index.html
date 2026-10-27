@@ -254,7 +254,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const H = 3600e3, D = 24 * H;
 
-const STAGES = [['new','New'],['noanswer','No answer'],['talking','Pipeline'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost']];
+const STAGES = [['new','New'],['noanswer','No answer'],['talking','Contacted'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost']];
 /* Best call windows in Dubai time, by the lead's dialling code */
 const WIN_GROUPS = [
   [['971','968','974','965','973','966','962','961','20'], [[11,13],[16,19]], 'Gulf'],
@@ -730,11 +730,22 @@ function bxDateFields(p){
   const d = new Date(p.nextAt), z = n => String(n).padStart(2, '0'), day = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
   return {[f]: S.cfg.bxDateType === 'datetime' ? `${day}T${z(d.getHours())}:${z(d.getMinutes())}:00${(o => (o <= 0 ? '+' : '-') + z(Math.floor(Math.abs(o) / 60)) + ':' + z(Math.abs(o) % 60))(d.getTimezoneOffset())}` : day};
 }
+/* Required Bitrix questions (Timing of buying, Property type, Bedrooms, Budget, Purpose, Residency …) */
+const REQ_STAGES = ['talking', 'hot', 'meeting', 'nego', 'closed'];
+const reqMissing = l => (S.cfg.bxReq || []).filter(q => !(l.bxReq || {})[q.id]);
+function reqGuess(q, l){                       /* pre-pick the Bitrix answer from what Lead Desk already knows */
+  const src = /budget/i.test(q.name) ? l.budget : /purpose|goal/i.test(q.name) ? l.purpose : /timing|when/i.test(q.name) ? l.timeline : /bedroom/i.test(q.name) ? (l.ptype || '').replace(/\D/g, '') || (/studio/i.test(l.ptype || '') ? 'studio' : '') : /type/i.test(q.name) ? l.ptype : '';
+  if (!src || !q.items) return ''; const n = x => String(x).toLowerCase().replace(/[^a-z0-9]/g, ''), v = n(src);
+  const hit = q.items.find(i => n(i.v) === v) || q.items.find(i => v && (n(i.v).includes(v) || v.includes(n(i.v)))); return hit ? hit.id : '';
+}
 function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
   const map = S.cfg.bxMap || {};
   const moved = p.stage && map[p.stage] && (p.stage !== (before && before.stage) || (['later','pool'].includes(p.stage) && p.nextAt));
-  if (moved) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage], ...bxDateFields(p)}}, 'stage ' + STAGE[p.stage]);
+  if (moved && REQ_STAGES.includes(p.stage) && reqMissing(l).length) {          /* Bitrix would refuse the move: ask first */
+    S.leads.set(l.id, {...S.leads.get(l.id), bxReqPending: p.stage}); write('leads/' + l.id, {bxReqPending: p.stage});
+    setTimeout(() => openSheet('reqfields', l.id, {stage: p.stage}), 350);
+  } else if (moved) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage], ...bxDateFields(p), ...(l.bxReq || {})}}, 'stage ' + STAGE[p.stage]);
   if (!hist || BX_SKIP.has(hist.k) || !hist.txt) return;
   const auto = BX_AUTO.has(hist.k);
   if (auto && S.manualAt && S.manualAt[l.id] && Date.now() - S.manualAt[l.id] < 10*60e3) return;   /* you already wrote the comment */
@@ -748,6 +759,7 @@ function patchLead(id, patch, hist, opts = {}){
   if (hist) p.history = [...(l.history || []), {t: Date.now(), ...hist}].slice(-200);
   if (hist && S.lastCall && S.lastCall.id === id && hist.k !== 'note') { S.lastCall = null; S.afterCall = null; saveSession(); }
   if (l.fresh && hist && !['note', 'created', 'stage'].includes(hist.k)) p.fresh = false;
+  if (p.stage && p.stage !== l.stage) p.stageAt = Date.now();       /* a stage you just set is not undone by an older Bitrix stage */
   S.leads.set(id, {...l, ...p});
   write('leads/' + id, p);
   try { bxAfterPatch({...l, ...p}, patch, hist, l); } catch (e) {}
@@ -1033,6 +1045,9 @@ function viewMsgs(){
     <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
     ${S.bxStatuses ? `<div class="lbl">Match the stages</div><p class="hint" style="margin:0">When you move a lead in Lead Desk, Bitrix moves it to the stage you pick here. "Don't change" leaves Bitrix as it is.</p>
       ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost','junk'].map(k => `<div class="field"><label for="bxm_${k}">${k === 'junk' ? 'Junk (lead is deleted from Lead Desk) – pick the reason, e.g. Wrong details' : esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
+    ${S.bxListFields ? `<div class="field"><span class="lbl">Questions Bitrix requires before Contacted (Lead Desk asks them once per lead and sends the answers with the stage)</span>
+      <div class="chips">${S.bxListFields.map(x => `<button type="button" class="chip ${(S.cfg.bxReq || []).some(q => q.id === x.id) ? 'on' : ''}" data-act="bxReqToggle" data-v="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div></div>`
+      : (S.cfg.bxReq && S.cfg.bxReq.length ? `<div class="hint">Before Contacted, Lead Desk asks: ${esc(S.cfg.bxReq.map(q => q.name).join(', '))}.</div>` : '')}
     ${S.bxDateFields ? `<div class="field"><label for="bx_datef">Bitrix date field for the next contact (filled when you move a lead to Buy later or Pool)</label><select class="input" id="bx_datef"><option value="">None</option>${S.bxDateFields.map(x => `<option value="${esc(x.id)}" data-type="${x.type}" ${S.cfg.bxDateField === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>` : (S.cfg.bxDateField ? `<div class="hint">Next contact date is written to Bitrix field ${esc(S.cfg.bxDateField)}.</div>` : '')}
     ${S.bxStatuses ? `<div class="field"><label for="bx_in">New leads: bring in leads assigned to me from this Bitrix stage</label><select class="input" id="bx_in"><option value="">Off</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${S.cfg.bxInStage === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select>
       <div class="hint">They arrive in No answer, marked NEW, and are moved to your No answer stage in Bitrix (when automatic updates are on). Checked every 5 minutes while Lead Desk is open.</div></div>` : (S.cfg.bxInStage ? '<div class="hint">New leads are brought in from Bitrix stage ' + esc(S.cfg.bxInStage) + '. Tap Test connection to change it.</div>' : '')}
@@ -1099,6 +1114,7 @@ function briefing(l){
   const recent = (l.history || []).filter(h => h.k !== 'created').slice(-3).reverse();
   const noDate = ['later','pool'].includes(l.stage) && (l.needDate || !l.nextAt);
   return `<div class="brief">
+    ${l.bxReqPending && bxOn() ? `<div class="banner">Bitrix is not moved to ${esc(STAGE[l.bxReqPending])} yet – <button class="btn btn-ghost" data-act="reqOpen" data-id="${l.id}" data-st="${l.bxReqPending}">Answer ${reqMissing(l).length || ''} Bitrix questions</button></div>` : ''}
     ${noDate ? `<div class="banner">${esc(STAGE[l.stage])} without a date – <button class="btn btn-ghost" data-act="pickLaterDate" data-id="${l.id}" data-st="${l.stage}">Pick when to contact again</button></div>` : ''}
     <div class="brief-label">Before you contact</div>
     ${l.fresh ? `<div class="freshban"><b>NEW LEAD from Bitrix</b> – arrived ${esc(ago(l.freshAt || l.createdAt))}${l.crmCreated ? ' (created ' + esc(when(l.crmCreated)) + ')' : ''}. Not contacted yet – call now, it's the best moment.</div>` : ''}
@@ -1198,7 +1214,7 @@ function outcomeBar(l){
   </div>
   ${nextBtn}
   <div class="lbl">Move to</div>
-  <div class="movebar">${[['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later'],['junk','Junk']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
+  <div class="movebar">${[['talking','Contacted'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later'],['junk','Junk']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
 `;
 }
 
@@ -1223,7 +1239,7 @@ function renderFocus(){
 
 /* ---------- sheets ---------- */
 function openSheet(type, id, extra = {}){ if (S.sheet && S.sheet.id !== id) setTimeout(bxRun, 0); S.sheet = {type, id, ...extra}; S.form = {}; S.confirmDel = false; if (type === 'lead') S.editOpen = false; renderSheet(); $('#sheetWrap').hidden = false; $('#sheet').scrollTo(0,0); }
-/* No active lead without a next step: closing a Pipeline / HOT / Meeting / Negotiation lead with no future follow-up asks for one */
+/* No active lead without a next step: closing a Contacted / HOT / Meeting / Negotiation lead with no future follow-up asks for one */
 const needsNext = l => l && isOpen(l) && (['talking','hot','meeting','nego'].includes(l.stage) || l.hot) && (!l.nextAt || l.nextAt < Date.now());
 function userClose(){
   const s = S.sheet, l = s && s.type === 'lead' && S.leads.get(s.id);
@@ -1238,7 +1254,15 @@ function renderSheet(){
   const s = S.sheet; if (!s) return; const l = S.leads.get(s.id); const box = $('#sheet');
   if (!l) { closeSheet(); return; }
   let h = '';
-  if (s.type === 'laterdate') {
+  if (s.type === 'reqfields') {
+    const have = l.bxReq || {};
+    h = head('Bitrix needs these for ' + esc(STAGE[s.stage] || 'Contacted'), esc(l.name || '') + ' – answer once, they are sent to Bitrix with the stage.')
+      + `<div class="form">${(S.cfg.bxReq || []).map(q => { const cur = have[q.id] || reqGuess(q, l);
+        return `<div class="field"><label for="rq_${esc(q.id)}">${esc(q.name)}</label>${q.items && q.items.length
+          ? `<select class="input" id="rq_${esc(q.id)}"><option value="">Choose…</option>${q.items.map(i => `<option value="${esc(i.id)}" ${cur === i.id ? 'selected' : ''}>${esc(i.v)}</option>`).join('')}</select>`
+          : `<input class="input" id="rq_${esc(q.id)}" value="${esc(cur || '')}">`}</div>`; }).join('')}
+        <button class="btn btn-primary" data-act="reqSave" data-id="${l.id}">Save and move in Bitrix</button></div>`;
+  } else if (s.type === 'laterdate') {
     const min = new Date(Date.now() + D).toISOString().slice(0, 10);
     h = head(esc(STAGE[s.stage] || 'Buy later') + ' – ' + esc(l.name || ''), 'When should you contact them again?')
       + `<div class="form"><div class="chips">${[['30','1 month'],['60','2 months'],['90','3 months'],['180','6 months'],['365','1 year']].map(([v, t]) => `<button class="chip" data-act="laterPick" data-id="${l.id}" data-st="${s.stage || 'later'}" data-v="${v}">${t}</button>`).join('')}</div>
@@ -1430,6 +1454,16 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'bxReqToggle': { const f = (S.bxListFields || []).find(x => x.id === t.dataset.v); if (!f) break; const cur = S.cfg.bxReq || [];
+      S.cfg.bxReq = cur.some(q => q.id === f.id) ? cur.filter(q => q.id !== f.id) : [...cur, f]; saveCfg(); renderView(); break; }
+    case 'reqOpen': openSheet('reqfields', id, {stage: t.dataset.st}); break;
+    case 'reqSave': { const l = S.leads.get(id), vals = {}; let miss = '';
+      for (const q of S.cfg.bxReq || []) { const el = document.getElementById('rq_' + q.id); const v = el && el.value.trim(); if (!v) { miss = miss || q.name; continue; } vals[q.id] = v; }
+      if (miss) { toast('Answer “' + miss + '” – Bitrix needs all of them'); break; }
+      const stage = S.sheet.stage || l.stage, map = S.cfg.bxMap || {};
+      patchLead(id, {bxReq: {...(l.bxReq || {}), ...vals}, bxReqPending: null}, null, {quiet: true});
+      if (map[stage]) bxQueue(S.leads.get(id), 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[stage], ...vals}}, 'stage ' + STAGE[stage]);
+      closeSheet(); toast('Saved · Bitrix moves to ' + STAGE[stage]); render(); break; }
     case 'pickLaterDate': openSheet('laterdate', id, {stage: t.dataset.st}); break;
     case 'laterPick': { const d = new Date(); d.setDate(d.getDate() + +t.dataset.v); d.setHours(10, 0, 0, 0); doLater(id, d.getTime(), t.dataset.st); break; }
     case 'laterSave': { const v = ($('#later_dt') || {}).value; if (!v) { toast('Pick a date'); break; } const d = new Date(v + 'T10:00'); if (d.getTime() < Date.now()) { toast('Pick a date in the future'); break; } doLater(id, d.getTime(), t.dataset.st); break; }
@@ -1568,7 +1602,7 @@ document.addEventListener('click', e => {
       bxCall('crm.status.list', {order: {SORT: 'ASC'}, filter: {ENTITY_ID: 'STATUS'}}, h).then(list => {
         S.bxStatuses = list || [];
         const map = {...(S.cfg.bxMap || {})}; const norm = x => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
-        const guess = {new: ['new', 'newlead', 'unprocessed'], noanswer: ['noanswer', 'notanswer'], talking: ['pipeline', 'inprogress', 'processing'], workshop: ['workshop'], pool: ['pool'], later: ['buylater', 'later'], closed: ['converted', 'closed', 'qualified'], lost: ['lost', 'notinterested'], junk: ['junk', 'spam', 'trash']};
+        const guess = {new: ['new', 'newlead', 'unprocessed'], noanswer: ['noanswer', 'notanswer'], talking: ['contacted', 'pipeline', 'inprogress', 'processing'], workshop: ['workshop'], pool: ['pool'], later: ['buylater', 'later'], closed: ['converted', 'closed', 'qualified'], lost: ['lost', 'notinterested'], junk: ['junk', 'spam', 'trash']};
         for (const [k, names] of Object.entries(guess)) if (!map[k]) { const hit = S.bxStatuses.find(st => names.includes(norm(st.NAME))); if (hit) map[k] = hit.STATUS_ID; }
         { const w = S.bxStatuses.find(st => /wrong/i.test(st.NAME)); if (w && (!map.junk || map.junk === 'JUNK')) map.junk = w.STATUS_ID; }
         const js = S.bxStatuses.find(st => st.STATUS_ID === map.junk); if (js) S.cfg.bxJunkName = js.NAME;
@@ -1576,6 +1610,9 @@ document.addEventListener('click', e => {
         if (!S.cfg.bxInStage) { const hit = S.bxStatuses.find(st => /assign/i.test(st.NAME)); if (hit) S.cfg.bxInStage = hit.STATUS_ID; }
         saveCfg();
         bxCall('crm.lead.fields', {}, h).then(f => {          /* Bitrix date fields, for the "next contact" date Bitrix asks for in Buy later */
+          S.bxListFields = Object.entries(f || {}).filter(([k, v]) => /^UF_/.test(k) && ['enumeration', 'string', 'integer', 'double'].includes(v.type))
+            .map(([k, v]) => ({id: k, type: v.type, name: v.listLabel || v.formLabel || v.title || k, items: (v.items || []).map(i => ({id: String(i.ID), v: i.VALUE}))}));
+          if (!S.cfg.bxReq) { S.cfg.bxReq = S.bxListFields.filter(x => /timing|property ?type|bedroom|budget|purpose|residen/i.test(x.name)); saveCfg(); }
           S.bxDateFields = Object.entries(f || {}).filter(([k, v]) => ['date', 'datetime'].includes(v.type) && /^UF_/.test(k)).map(([k, v]) => ({id: k, type: v.type, name: v.listLabel || v.formLabel || v.title || k}));
           if (!S.cfg.bxDateField) { const g = S.bxDateFields.find(x => /next|contact|follow|later|nästa|kontakt/i.test(x.name)); if (g) { S.cfg.bxDateField = g.id; S.cfg.bxDateType = g.type; saveCfg(); } }
           renderView();
@@ -1743,7 +1780,7 @@ function newLeadDoc(f){
 /* Create a lead, or add the info to the lead that already has this number/email. Never makes a duplicate. */
 /* The lead's early call window on a given day (for Bitrix "contact again" dates) */
 function windowOnDay(l, dayMs){ const off = 4*H, day0 = Math.floor((dayMs + off) / D) * D; return day0 + callWindows(l)[0][0]*H - off; }
-const PASTE_STAGES = [['auto','As it is'],['talking','Pipeline'],['noanswer','No answer'],['workshop','Workshop'],['later','Buy later'],['pool','Pool']];
+const PASTE_STAGES = [['auto','As it is'],['talking','Contacted'],['noanswer','No answer'],['workshop','Workshop'],['later','Buy later'],['pool','Pool']];
 function stagePatch(l, stage, r){
   const p = {};
   if (stage && stage !== 'auto') {
