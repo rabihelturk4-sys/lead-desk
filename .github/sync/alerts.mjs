@@ -186,13 +186,13 @@ async function main(){
 
     /* Comments you add on the lead's timeline in Bitrix → Lead Desk (50 leads per Bitrix call; the first look only remembers what is there) */
     try {
-      const linked = leads.filter(l => (l.bxId || l.leadNo) && !['junk'].includes(l.stage)); let added = 0;
+      const linked = leads.filter(l => (l.bxId || l.leadNo) && !['junk'].includes(l.stage)); let added = 0, seen = 0;
       for (let i = 0; i < linked.length; i += 50) {
         const part = linked.slice(i, i + 50), cmd = {};
         for (const l of part) cmd['c' + l.id.replace(/\W/g, '_')] = 'crm.timeline.comment.list?' + new URLSearchParams({'filter[ENTITY_ID]': String(l.bxId || l.leadNo), 'filter[ENTITY_TYPE]': 'lead'}).toString();
         const res = ((await bx(hook, 'batch', {halt: 0, cmd})).result || {}).result || {};
         for (const l of part) {
-          const list = res['c' + l.id.replace(/\W/g, '_')]; if (!Array.isArray(list) || !list.length) continue;
+          const list = res['c' + l.id.replace(/\W/g, '_')]; if (!Array.isArray(list) || !list.length) continue; seen++;
           const max = Math.max(...list.map(c => +c.ID || 0)); if (l.bxCmtMax === max) continue;
           const fresh = l.bxCmtMax === undefined ? [] : list.filter(c => +c.ID > l.bxCmtMax).sort((a, b) => a.ID - b.ID);
           const texts = fresh.map(c => plainComment(c.COMMENT)).filter(t => t && !ownComment(t, l.history, (l.crm || '') + ' ' + (l.note || '')));
@@ -202,7 +202,7 @@ async function main(){
         }
         await new Promise(r => setTimeout(r, 600));
       }
-      if (added) notes.push(added + ' Bitrix comments copied');
+      notes.push(`Bitrix comments: ${linked.length} leads checked, ${seen} with comments, ${added} copied`);
     } catch (e) { notes.push('Bitrix comments problem: ' + e.message); }
   }
 
