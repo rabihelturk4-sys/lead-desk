@@ -8,8 +8,8 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;
   /* network first so updates arrive at once; cache when offline */
   /* the page itself skips the browser cache, so a new version shows on the next open */
-  const req = e.request.mode === 'navigate' || u.pathname.endsWith('.html') || u.pathname.endsWith('/') ? new Request(e.request, {cache: 'no-store'}) : e.request;
-  e.respondWith(fetch(req).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(e.request, c)); return r; }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html'))));
+  const req = e.request.mode === 'navigate' || u.pathname.endsWith('.html') || u.pathname.endsWith('/') ? true : false;
+  e.respondWith((req ? fetch(e.request.url, {cache: 'no-store', credentials: 'same-origin'}) : fetch(e.request)).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(e.request, c)); return r; }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html'))));
 });
 /* Tapping a "new lead" notification opens Lead Desk */
 self.addEventListener('notificationclick', e => {
