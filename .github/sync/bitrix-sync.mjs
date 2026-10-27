@@ -66,8 +66,6 @@ async function bx(hook, method, params){
   return j.result;
 }
 
-/* Comment written in Bitrix when a lead is moved from Lead assigned to No answer */
-const MOVE_NOTE = 'Moved from Lead assigned to No answer by Lead Desk – new lead, not called yet.';
 
 async function main(){
   if (!process.env.FIREBASE_SERVICE_ACCOUNT || !process.env.BITRIX_WEBHOOK) { console.log('::notice::Secrets FIREBASE_SERVICE_ACCOUNT and BITRIX_WEBHOOK are not set yet – nothing to do.'); return; }
@@ -90,12 +88,7 @@ async function main(){
     for (const u of updates) await root.collection('leads').doc(u.docId).update({...u.patch, history: admin.firestore.FieldValue.arrayUnion(u.hist)});
     const target = (cfg.bxMap || {}).noanswer;
     if (target && target !== cfg.bxInStage) for (const id of moves) {
-      try {
-        const cur = await bx(hook, 'crm.lead.get', {id}), old = (cur && cur.COMMENTS) ? String(cur.COMMENTS) : '';
-        const text = stamp(Date.now()) + '\n' + MOVE_NOTE;
-        await bx(hook, 'crm.lead.update', {id, fields: {STATUS_ID: target, COMMENTS: text + (old.trim() ? '\n\n' + old : '')}});
-        try { await bx(hook, 'crm.timeline.comment.add', {fields: {ENTITY_ID: id, ENTITY_TYPE: 'lead', COMMENT: text}}); } catch (e) {}
-      } catch (e) { console.log(e.message); }
+      try { await bx(hook, 'crm.lead.update', {id, fields: {STATUS_ID: target}}); } catch (e) { console.log(e.message); }
     }
     const names = [...creates, ...updates].map(x => x.name);
     if (names.length) {

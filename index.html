@@ -604,7 +604,7 @@ async function bxEnsure(l){
   if (id) { const cur = S.leads.get(l.id); if (cur) { S.leads.set(l.id, {...cur, bxId: id}); write('leads/' + l.id, {bxId: id}); } }
   return id;
 }
-const BX_SKIP = new Set(['created', 'note']);
+const BX_SKIP = new Set(['created', 'note', 'stage']);   /* stage moves are not written as Bitrix comments – Bitrix shows the stage itself */
 /* Bring in from Bitrix: every lead assigned to me in Bitrix that is not in Lead Desk is added in the matching stage,
    and leads already here get their email (and phone) from Bitrix when it is missing. Nothing is changed in Bitrix. */
 let bxImporting = false;
@@ -656,7 +656,6 @@ async function bxJunk(p){
   if (!id) id = await found('PHONE', p.phone ? '+' + digits(p.phone) : '') || await found('EMAIL', p.email);
   if (!id) return;
   await bxCall('crm.lead.update', {id, fields: {STATUS_ID: p.status}});
-  await bxAddComment(id, bxStamp(Date.now()) + '\nJunk – ' + p.reason + ' (removed from Lead Desk)');
 }
 function doJunk(id){
   const l = S.leads.get(id); if (!l) return;
@@ -678,7 +677,6 @@ async function bxAddComment(id, text){
 }
 /* New leads: every few minutes while the app is open, leads assigned to me in the chosen Bitrix stage ("Lead assigned")
    are added to Lead Desk in No answer, marked NEW until the first contact, and moved in Bitrix to the No answer stage. */
-const MOVE_NOTE = 'Moved from Lead assigned to No answer by Lead Desk – new lead, not called yet.';
 const bxMe = () => { const m = bxHook().match(/\/rest\/(\d+)\//); return m ? m[1] : ''; };
 let bxPulling = false;
 async function bxPull(manual){
@@ -695,7 +693,6 @@ async function bxPull(manual){
       const name = [b.NAME, b.LAST_NAME].filter(Boolean).join(' ') || b.TITLE || 'New lead';
       const created = b.DATE_CREATE ? Date.parse(b.DATE_CREATE) : Date.now();
       if (ex) { patchLead(ex.id, {bxId: String(b.ID), leadNo: ex.leadNo || String(b.ID), stage: 'noanswer', fresh: true, nextAt: nextWindowAt(ex)}, {k: 'note', txt: 'Came in again from Bitrix (lead #' + b.ID + ')'}, {quiet: true}); added.push(ex.name);
-        if (bxOn() && (S.cfg.bxMap || {}).noanswer && S.cfg.bxMap.noanswer !== stage) bxQueue({...ex}, 'ld.comment', {id: String(b.ID), text: bxStamp(Date.now()) + '\n' + MOVE_NOTE}, 'comment');
         continue; }
       const id = 'X' + b.ID;
       const lead = newLeadDoc({name, phone, email, notes: [b.COMMENTS && String(b.COMMENTS).replace(/<[^>]+>/g, ' ').trim(), b.SOURCE_DESCRIPTION].filter(Boolean).join('\n'), source: b.SOURCE_ID || 'Bitrix'});
@@ -704,8 +701,7 @@ async function bxPull(manual){
       lead.nextAt = nextWindowAt(lead);
       S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set'); added.push(name);
       const map = S.cfg.bxMap || {};
-      if (bxOn() && map.noanswer && map.noanswer !== stage) { bxQueue({...lead, id}, 'crm.lead.update', {id: String(b.ID), fields: {STATUS_ID: map.noanswer}}, 'move to No answer');
-        bxQueue({...lead, id}, 'ld.comment', {id: String(b.ID), text: bxStamp(Date.now()) + '\n' + MOVE_NOTE}, 'comment'); }
+      if (bxOn() && map.noanswer && map.noanswer !== stage) bxQueue({...lead, id}, 'crm.lead.update', {id: String(b.ID), fields: {STATUS_ID: map.noanswer}}, 'move to No answer');
     }
     S.bxPullAt = Date.now();
     if (added.length) {
@@ -1458,7 +1454,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '39';
+const APP_VER = '40';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
