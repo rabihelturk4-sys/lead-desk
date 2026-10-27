@@ -1082,6 +1082,8 @@ function viewMsgs(){
     <div class="field"><label for="imp_text">Or paste leads copied from the old Lead Desk</label><textarea class="input" id="imp_text" placeholder="Paste here, then tap Import"></textarea></div>
     <button class="btn btn-primary" data-act="importText">Import pasted leads</button>
     <div id="imp_res">${S.impMsg ? `<div class="meetb">${esc(S.impMsg)}</div>` : ''}</div>
+    ${(() => { let e = ''; try { e = localStorage.getItem('lastErr') || ''; } catch (x) {} return e ? `<div class="hint">Last problem on this device: ${esc(e)}</div>` : ''; })()}
+    <div class="hint">Version ${esc(APP_VER)}</div>
     <button class="btn btn-ghost" data-act="signOut">Sign out</button>
   </div>
   <div class="card form">
@@ -1451,6 +1453,11 @@ function doLater(id, at, stage = 'later'){
 function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(), nextAt: at10(90), noAnswer: 0}, {k:'stage', txt:'Not interested – re-engage in 3 months'}, {quiet: true}); }
 
 /* ---------- events ---------- */
+/* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
+const APP_VER = '38';
+function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
+window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
+window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
   const act = t.dataset.act, id = t.dataset.id;
