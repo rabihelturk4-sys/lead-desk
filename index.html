@@ -822,9 +822,17 @@ function connect(root){
   }, e => { $('#sync').textContent = 'Sync error'; toast('Could not load leads: ' + e.message); }));
   unsubs.push(db.doc('config/main').onSnapshot(s => { S.cfg = s.exists ? JSON.parse(JSON.stringify(s.data())) : {}; S.cfgLoaded = true; softRender(); if (!pushTried) { pushTried = true; refreshPush();  setTimeout(queueMonthly, 5000); } }, () => {}));
   unsubs.push(db.doc('config/sync').onSnapshot(s => { S.sync = s.exists ? s.data() : null; }, () => {}));
+  /* Bitrix link and the "update Bitrix" switch follow you to every device you sign in on (kept in your own account, users/{uid}/config/private) */
+  unsubs.push(db.doc('config/private').onSnapshot(s => { const d = s.exists ? s.data() : {}; let ch = false;
+    try { if (d.bxHook && localStorage.getItem('bxHook') !== d.bxHook) { localStorage.setItem('bxHook', d.bxHook); ch = true; }
+      if (d.bxOn != null && localStorage.getItem('bxOn') !== d.bxOn) { localStorage.setItem('bxOn', d.bxOn); ch = true; } } catch (e) {}
+    if (!d.bxHook && bxValid(bxHook())) savePrivate();            /* first device that has it shares it */
+    if (ch) { softRender(); bxRun(); }
+  }, () => {}));
 }
 /* ---------- background alerts: the GitHub check sends a push to every device saved in users/{uid}/devices ---------- */
 let pushTried = false;
+function savePrivate(){ try { if (bxValid(bxHook())) write('config/private', {bxHook: bxHook(), bxOn: localStorage.getItem('bxOn') || '0'}, 'set'); } catch (e) {} }
 function deviceId(){ let id = ''; try { id = localStorage.getItem('deviceId') || ''; if (!id) { id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem('deviceId', id); } } catch (e) { id = 'd0'; } return id; }
 async function enablePush(silent){
   if (!S.cfg.vapidKey) { if (!silent) toast('Paste the Web Push key first'); return; }
@@ -1039,7 +1047,7 @@ function viewMsgs(){
   </div>
   <div class="card form">
     <h3>Bitrix24</h3>
-    <p class="hint" style="margin:0">Paste your Bitrix inbound webhook link (Developer resources → Other → Inbound webhook, with CRM access). It is saved on this device only – add it on your phone and your laptop.</p>
+    <p class="hint" style="margin:0">Paste your Bitrix inbound webhook link (Developer resources → Other → Inbound webhook, with CRM access). It is kept in your account, so it works on your phone and laptop once added on one of them.</p>
     <input class="input" id="bx_hook" type="password" autocomplete="off" placeholder="https://yourcompany.bitrix24.com/rest/12/abc123/" value="${esc(bxHook() === '/' ? '' : bxHook())}">
     <button class="btn btn-ghost" data-act="bxTest">Test connection and load my Bitrix stages</button>
     <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
@@ -1597,7 +1605,7 @@ document.addEventListener('click', e => {
     case 'importText': importLeads($('#imp_text').value); break;
     case 'bxTest': { const h = ($('#bx_hook').value || '').trim().replace(/\/?$/, '/');
       if (!bxValid(h)) { $('#bx_res').innerHTML = '<div class="banner">That does not look like a Bitrix webhook link. It looks like https://yourcompany.bitrix24.com/rest/12/abc123/</div>'; break; }
-      try { localStorage.setItem('bxHook', h); } catch (e) {}
+      try { localStorage.setItem('bxHook', h); } catch (e) {} savePrivate();
       $('#bx_res').innerHTML = '<div class="hint">Connecting to Bitrix…</div>';
       bxCall('crm.status.list', {order: {SORT: 'ASC'}, filter: {ENTITY_ID: 'STATUS'}}, h).then(list => {
         S.bxStatuses = list || [];
@@ -1628,7 +1636,7 @@ document.addEventListener('click', e => {
     case 'testNaMail': queueNaMail({id: '', name: (S.cfg.myName || 'Test').split(' ')[0], email: myEmail(), lang: 'en'}, true); toast('Test email queued – it arrives in your inbox within about 5–15 minutes'); break;
     case 'setAuto': { const g = t.closest('[data-group]'); const k = (g && g.dataset.group) || t.dataset.g; S.cfg[k] = t.dataset.v === '1'; saveCfg(); renderView(); toast('Saved'); break; }
     case 'cardDel': write('config/card', null, 'del'); S.cfg.cardName = ''; S.cardPreview = ''; saveCfg(); renderView(); toast('Business card removed'); break;
-    case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
+    case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} savePrivate(); renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
     case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
       toast('Sending to Bitrix…');
       bxEnsure(l).then(bid => bxAddComment(bid, (last ? bxStamp(last.t) + '\n' + last.txt : 'Connected from Lead Desk'))
