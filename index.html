@@ -524,7 +524,7 @@ function write(path, data, mode){
   if (!db) { toast('Not saved: storage is not connected'); return; }
   const ref = db.doc(path);
   chains[path] = (chains[path] || Promise.resolve())
-    .then(() => mode === 'set' ? ref.set(data) : mode === 'del' ? ref.delete() : ref.update(data))
+    .then(() => mode === 'set' ? ref.set(data) : mode === 'merge' ? ref.set(data, {merge: true}) : mode === 'del' ? ref.delete() : ref.update(data))
     .catch(e => toast('Save failed: ' + (e && (e.message || e.code))));
 }
 
@@ -574,7 +574,7 @@ async function bxRun(){
       bxDrop(job); bxSave(); S.bxErr = '';
     } catch (e) {
       if (e.code === 'net' || /^http5/.test(e.code)) { S.bxErr = e.message; break; }   /* offline: keep and retry later */
-      S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxDrop(job); bxSave(); toast('Bitrix did not take the ' + job.what + ': ' + (e.message || e.code));
+      S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxDrop(job); bxSave(); toast('Bitrix did not take the ' + job.what + ': ' + (e.message || e.code), 9000);
     }
   }
   bxBusy = false;
@@ -825,14 +825,16 @@ function connect(root){
   /* Bitrix link and the "update Bitrix" switch follow you to every device you sign in on (kept in your own account, users/{uid}/config/private) */
   unsubs.push(db.doc('config/private').onSnapshot(s => { const d = s.exists ? s.data() : {}; let ch = false;
     try { if (d.bxHook && localStorage.getItem('bxHook') !== d.bxHook) { localStorage.setItem('bxHook', d.bxHook); ch = true; }
-      if (d.bxOn != null && localStorage.getItem('bxOn') !== d.bxOn) { localStorage.setItem('bxOn', d.bxOn); ch = true; } } catch (e) {}
+      const on = d.bxOnSet ? d.bxOn : (d.bxHook ? '1' : null);       /* never switched by you: on */
+      if (on != null && localStorage.getItem('bxOn') !== on) { localStorage.setItem('bxOn', on); ch = true; } } catch (e) {}
     if (!d.bxHook && bxValid(bxHook())) savePrivate();            /* first device that has it shares it */
     if (ch) { softRender(); bxRun(); }
   }, () => {}));
 }
 /* ---------- background alerts: the GitHub check sends a push to every device saved in users/{uid}/devices ---------- */
 let pushTried = false;
-function savePrivate(){ try { if (bxValid(bxHook())) write('config/private', {bxHook: bxHook(), bxOn: localStorage.getItem('bxOn') || '0'}, 'set'); } catch (e) {} }
+/* The on/off switch is only shared when you tap it, so a new device cannot switch Bitrix updates off for the others */
+function savePrivate(withSwitch){ try { if (bxValid(bxHook())) write('config/private', {bxHook: bxHook(), ...(withSwitch ? {bxOn: localStorage.getItem('bxOn') || '0', bxOnSet: true} : {})}, 'merge'); } catch (e) {} }
 function deviceId(){ let id = ''; try { id = localStorage.getItem('deviceId') || ''; if (!id) { id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem('deviceId', id); } } catch (e) { id = 'd0'; } return id; }
 async function enablePush(silent){
   if (!S.cfg.vapidKey) { if (!silent) toast('Paste the Web Push key first'); return; }
@@ -943,7 +945,9 @@ function viewToday(){
   const dh = dubaiHour();
   const q = buildQueue(); const f = S.cfg.focus || {};
   const d = new Date().toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'});
-  return `<section class="hero">
+  const bxWarn = bxValid(bxHook()) && !bxOn() ? 'Bitrix updates are off on this device – turn on "Update Bitrix automatically" in Settings → Bitrix24.'
+    : S.bxErr ? 'Last Bitrix problem: ' + S.bxErr : '';
+  return `${bxWarn ? `<div class="banner">${esc(bxWarn)}</div>` : ''}<section class="hero">
     <div class="date">${esc(d)}</div>
     <div class="stats">
       <div class="stat hot"><b>${risk.length}</b><span>Hot at risk</span></div>
@@ -1454,7 +1458,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '38';
+const APP_VER = '39';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1643,7 +1647,7 @@ document.addEventListener('click', e => {
     case 'testNaMail': queueNaMail({id: '', name: (S.cfg.myName || 'Test').split(' ')[0], email: myEmail(), lang: 'en'}, true); toast('Test email queued – it arrives in your inbox within about 5–15 minutes'); break;
     case 'setAuto': { const g = t.closest('[data-group]'); const k = (g && g.dataset.group) || t.dataset.g; S.cfg[k] = t.dataset.v === '1'; saveCfg(); renderView(); toast('Saved'); break; }
     case 'cardDel': write('config/card', null, 'del'); S.cfg.cardName = ''; S.cardPreview = ''; saveCfg(); renderView(); toast('Business card removed'); break;
-    case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} savePrivate(); renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
+    case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} savePrivate(true); renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
     case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
       toast('Sending to Bitrix…');
       bxEnsure(l).then(bid => bxAddComment(bid, (last ? bxStamp(last.t) + '\n' + last.txt : 'Connected from Lead Desk'))
