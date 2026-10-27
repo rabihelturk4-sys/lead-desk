@@ -152,7 +152,7 @@ async function main(){
       else {
         const me = (hook.match(/\/rest\/(\d+)\//) || [])[1], rows = [];
         for (let start = 0; ; ) {
-          const j = await bx(hook, 'crm.lead.list', {filter: {ASSIGNED_BY_ID: me, '>DATE_MODIFY': new Date(since - 60e3).toISOString()}, select: ['ID', 'STATUS_ID', 'COMMENTS', 'DATE_MODIFY'], order: {ID: 'ASC'}, start});
+          const j = await bx(hook, 'crm.lead.list', {filter: {ASSIGNED_BY_ID: me, '>DATE_MODIFY': new Date(since - 60e3).toISOString()}, select: ['ID', 'STATUS_ID', 'COMMENTS', 'DATE_MODIFY', ...(cfg.bxDateField ? [cfg.bxDateField] : [])], order: {ID: 'ASC'}, start});
           rows.push(...(j.result || [])); if (!j.next) break; start = j.next;
         }
         const byBx = new Map(leads.filter(l => l.bxId || l.leadNo).map(l => [String(l.bxId || l.leadNo), l]));
@@ -161,9 +161,14 @@ async function main(){
           const l = byBx.get(String(b.ID)); if (!l || b.STATUS_ID === cfg.bxInStage) continue;
           const patch = {}, notesHere = [];
           const fits = Object.keys(map).filter(k => k !== 'junk' && map[k] === b.STATUS_ID);
-          if (map.junk && b.STATUS_ID === map.junk && l.stage !== 'lost') { patch.stage = 'lost'; patch.hot = false; patch.nextAt = null; notesHere.push('Set to Junk in Bitrix'); }
-          else if (fits.length && !fits.includes(l.stage)) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + fits[0]);
-            if (['later', 'pool'].includes(fits[0])) { patch.needDate = true; patch.nextAt = null; patch.hot = false; } }   /* Lead Desk asks for the date */
+          const bxDate = cfg.bxDateField && b[cfg.bxDateField] ? Date.parse(b[cfg.bxDateField]) : NaN, dated = bxDate > now;
+          if (fits.length && !fits.includes(l.stage)) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + fits[0]);
+            if (['later', 'pool'].includes(fits[0])) {                 /* use the next contact date from Bitrix, or Lead Desk asks for one */
+              Object.assign(patch, {hot: false, needDate: !dated, nextAt: dated ? bxDate : null});
+              if (dated) notesHere.push('Contact again ' + dubaiDay(bxDate) + ' (date from Bitrix)'); } }
+          else if (map.junk && b.STATUS_ID === map.junk && l.stage !== 'lost') { patch.stage = 'lost'; patch.hot = false; patch.nextAt = null; notesHere.push('Set to Junk in Bitrix'); }
+          else if (['later', 'pool'].includes(l.stage) && dated && Math.abs(bxDate - (l.nextAt || 0)) > D) {   /* date changed in Bitrix */
+            Object.assign(patch, {nextAt: bxDate, needDate: false}); notesHere.push('Contact again date changed in Bitrix → ' + dubaiDay(bxDate)); }
           const top = topComment(b.COMMENTS);
           if (top && top !== l.bxTop) { patch.bxTop = top; if (l.bxTop !== undefined && !ownComment(top, l.history)) notesHere.push('Bitrix comment: ' + top.slice(0, 500)); }
           if (!Object.keys(patch).length) continue;

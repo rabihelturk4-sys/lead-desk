@@ -723,10 +723,18 @@ async function bxPull(manual){
 setInterval(() => { if (document.visibilityState === 'visible') bxPull(); }, 5 * 60e3);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - (S.bxPullAt || 0) > 60e3) bxPull(); });
 /* Called for every saved change: stage moves and logged results go to Bitrix when automatic updates are on */
+/* Bitrix asks for the next contact date when a lead goes to Buy later: send the new date together with the stage,
+   so the move is accepted and an old date from an earlier Buy later is replaced */
+function bxDateFields(p){
+  const f = S.cfg.bxDateField; if (!f || !['later','pool'].includes(p.stage) || !p.nextAt) return {};
+  const d = new Date(p.nextAt), z = n => String(n).padStart(2, '0'), day = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  return {[f]: S.cfg.bxDateType === 'datetime' ? `${day}T${z(d.getHours())}:${z(d.getMinutes())}:00${(o => (o <= 0 ? '+' : '-') + z(Math.floor(Math.abs(o) / 60)) + ':' + z(Math.abs(o) % 60))(d.getTimezoneOffset())}` : day};
+}
 function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
   const map = S.cfg.bxMap || {};
-  if (p.stage && p.stage !== (before && before.stage) && map[p.stage]) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage]}}, 'stage ' + STAGE[p.stage]);
+  const moved = p.stage && map[p.stage] && (p.stage !== (before && before.stage) || (['later','pool'].includes(p.stage) && p.nextAt));
+  if (moved) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage], ...bxDateFields(p)}}, 'stage ' + STAGE[p.stage]);
   if (!hist || BX_SKIP.has(hist.k) || !hist.txt) return;
   const auto = BX_AUTO.has(hist.k);
   if (auto && S.manualAt && S.manualAt[l.id] && Date.now() - S.manualAt[l.id] < 10*60e3) return;   /* you already wrote the comment */
@@ -1025,6 +1033,7 @@ function viewMsgs(){
     <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
     ${S.bxStatuses ? `<div class="lbl">Match the stages</div><p class="hint" style="margin:0">When you move a lead in Lead Desk, Bitrix moves it to the stage you pick here. "Don't change" leaves Bitrix as it is.</p>
       ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost','junk'].map(k => `<div class="field"><label for="bxm_${k}">${k === 'junk' ? 'Junk (lead is deleted from Lead Desk) – pick the reason, e.g. Wrong details' : esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
+    ${S.bxDateFields ? `<div class="field"><label for="bx_datef">Bitrix date field for the next contact (filled when you move a lead to Buy later or Pool)</label><select class="input" id="bx_datef"><option value="">None</option>${S.bxDateFields.map(x => `<option value="${esc(x.id)}" data-type="${x.type}" ${S.cfg.bxDateField === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>` : (S.cfg.bxDateField ? `<div class="hint">Next contact date is written to Bitrix field ${esc(S.cfg.bxDateField)}.</div>` : '')}
     ${S.bxStatuses ? `<div class="field"><label for="bx_in">New leads: bring in leads assigned to me from this Bitrix stage</label><select class="input" id="bx_in"><option value="">Off</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${S.cfg.bxInStage === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select>
       <div class="hint">They arrive in No answer, marked NEW, and are moved to your No answer stage in Bitrix (when automatic updates are on). Checked every 5 minutes while Lead Desk is open.</div></div>` : (S.cfg.bxInStage ? '<div class="hint">New leads are brought in from Bitrix stage ' + esc(S.cfg.bxInStage) + '. Tap Test connection to change it.</div>' : '')}
     ${S.cfg.bxInStage ? `<div class="actions"><button class="btn btn-ghost" data-act="bxPullNow">Check Bitrix for new leads now</button>${'Notification' in window && Notification.permission !== 'granted' ? '<button class="btn btn-ghost" data-act="askNotif">Turn on notifications</button>' : ''}</div>` : ''}
@@ -1566,6 +1575,11 @@ document.addEventListener('click', e => {
         S.cfg.bxMap = map;
         if (!S.cfg.bxInStage) { const hit = S.bxStatuses.find(st => /assign/i.test(st.NAME)); if (hit) S.cfg.bxInStage = hit.STATUS_ID; }
         saveCfg();
+        bxCall('crm.lead.fields', {}, h).then(f => {          /* Bitrix date fields, for the "next contact" date Bitrix asks for in Buy later */
+          S.bxDateFields = Object.entries(f || {}).filter(([k, v]) => ['date', 'datetime'].includes(v.type) && /^UF_/.test(k)).map(([k, v]) => ({id: k, type: v.type, name: v.listLabel || v.formLabel || v.title || k}));
+          if (!S.cfg.bxDateField) { const g = S.bxDateFields.find(x => /next|contact|follow|later|nästa|kontakt/i.test(x.name)); if (g) { S.cfg.bxDateField = g.id; S.cfg.bxDateType = g.type; saveCfg(); } }
+          renderView();
+        }, () => {});
         S.bxMsg = `<div class="meetb">Connected ✓ – found ${S.bxStatuses.length} lead stages in your Bitrix. Check the matching below.</div>`; renderView();
       }, e => { S.bxMsg = `<div class="banner">${esc(e.code === 'net' ? 'Bitrix did not answer this browser. Check the link, or your Bitrix blocks access from other websites.' : (e.message || e.code))}</div>`; renderView(); });
       break; }
@@ -1634,6 +1648,7 @@ document.addEventListener('change', e => {
     return; }
   if (t.dataset.cfg) { const [a, b] = t.dataset.cfg.split('.'); if (b) { S.cfg[a] = {...(S.cfg[a] || {}), [b]: t.value.trim()}; } else S.cfg[a] = t.value.trim(); saveCfg(); toast('Saved'); return; }
   if (t.id === 'bx_in') { S.cfg.bxInStage = t.value; saveCfg(); toast(t.value ? 'New leads will come in from Bitrix' : 'Bringing in new leads is off'); renderView(); if (t.value) setTimeout(() => bxPull(true), 500); return; }
+  if (t.id === 'bx_datef') { S.cfg.bxDateField = t.value; S.cfg.bxDateType = (t.selectedOptions[0] || {}).dataset ? t.selectedOptions[0].dataset.type || '' : ''; saveCfg(); toast('Saved'); return; }
   if (t.dataset.bxmap) { S.cfg.bxMap = {...(S.cfg.bxMap || {}), [t.dataset.bxmap]: t.value}; if (t.dataset.bxmap === 'junk') { const js = (S.bxStatuses || []).find(x => x.STATUS_ID === t.value); S.cfg.bxJunkName = js ? js.NAME : ''; } saveCfg(); toast('Saved'); return; }
   if (t.dataset.tpl) { const L = S.tplLang; S.cfg.templates = S.cfg.templates || {}; S.cfg.templates[L] = {...(S.cfg.templates[L] || {}), [t.dataset.tpl]: t.value}; saveCfg(); toast('Template saved'); return; }
   if (t.id === 'meet_dt') { S.form.dt = t.value; S.form.quick = null; }
