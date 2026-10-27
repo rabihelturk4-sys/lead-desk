@@ -162,7 +162,8 @@ async function main(){
           const patch = {}, notesHere = [];
           const fits = Object.keys(map).filter(k => k !== 'junk' && map[k] === b.STATUS_ID);
           if (map.junk && b.STATUS_ID === map.junk && l.stage !== 'lost') { patch.stage = 'lost'; patch.hot = false; patch.nextAt = null; notesHere.push('Set to Junk in Bitrix'); }
-          else if (fits.length && !fits.includes(l.stage)) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + fits[0]); }
+          else if (fits.length && !fits.includes(l.stage)) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + fits[0]);
+            if (['later', 'pool'].includes(fits[0])) { patch.needDate = true; patch.nextAt = null; patch.hot = false; } }   /* Lead Desk asks for the date */
           const top = topComment(b.COMMENTS);
           if (top && top !== l.bxTop) { patch.bxTop = top; if (l.bxTop !== undefined && !ownComment(top, l.history)) notesHere.push('Bitrix comment: ' + top.slice(0, 500)); }
           if (!Object.keys(patch).length) continue;

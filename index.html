@@ -569,6 +569,7 @@ async function bxRun(){
         if (job.method === 'crm.timeline.comment.add') job.params.fields.ENTITY_ID = id; else job.params.id = id;
       }
       if (job.method === 'ld.comment') await bxAddComment(job.params.id, job.params.text);
+      else if (job.method === 'ld.todo') await bxCall('crm.activity.todo.add', {ownerTypeId: 1, ownerId: job.params.id, deadline: job.params.deadline, title: job.params.title, description: job.params.text});
       else await bxCall(job.method, job.params);
       bxDrop(job); bxSave(); S.bxErr = '';
     } catch (e) {
@@ -909,6 +910,7 @@ function viewToday(){
   const laterBack = all.filter(l => ['later','pool'].includes(l.stage) && isDue(l)).sort(byNext);
   const due = all.filter(l => isDue(l) && !atRisk(l) && !isNew(l) && !['later','pool'].includes(l.stage)).sort(byNext);
   const nowList = [...risk, ...due, ...neu].filter(l => winOpen(l) && isOpen(l));
+  const noDate = all.filter(l => ['later','pool'].includes(l.stage) && l.needDate);   /* moved there in Bitrix */
   const forgot = all.filter(isForgotten).sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0));
   const dh = dubaiHour();
   const q = buildQueue(); const f = S.cfg.focus || {};
@@ -931,6 +933,7 @@ function viewToday(){
   ${section('due', 'Follow-ups due today', due, all.length ? 'No follow-ups left for today.' : '')}
   ${section('new', 'New leads, not contacted', neu, '')}
   ${section('hot', 'Forgotten – no contact for 14+ days', forgot, '')}
+  ${section('due', 'Buy later & Pool – pick a date to contact again', noDate, '')}
   ${section('due', 'Buy later & Pool – time to contact again', laterBack, '')}
   ${(() => { const n = waMonthlyDue().length; return n ? `<section><button class="btn btn-ghost btn-big" data-act="startWaRun">📣 Monthly WhatsApp to Pool &amp; Buy later · ${n} lead${n > 1 ? 's' : ''}</button></section>` : ''; })()}
   ${all.length ? '' : `<div class="empty">No leads yet. Tap <b>Add lead</b> below to add your first one. It takes about 10 seconds.</div>`}`;
@@ -1085,7 +1088,9 @@ function briefing(l){
   const facts = [l.budget, l.purpose, l.ptype, l.timeline, l.project && 'Wants: ' + l.project, l.source && 'From ' + l.source].filter(Boolean);
   const lh = lastHist(l); const n = Date.now();
   const recent = (l.history || []).filter(h => h.k !== 'created').slice(-3).reverse();
+  const noDate = ['later','pool'].includes(l.stage) && (l.needDate || !l.nextAt);
   return `<div class="brief">
+    ${noDate ? `<div class="banner">${esc(STAGE[l.stage])} without a date – <button class="btn btn-ghost" data-act="pickLaterDate" data-id="${l.id}" data-st="${l.stage}">Pick when to contact again</button></div>` : ''}
     <div class="brief-label">Before you contact</div>
     ${l.fresh ? `<div class="freshban"><b>NEW LEAD from Bitrix</b> – arrived ${esc(ago(l.freshAt || l.createdAt))}${l.crmCreated ? ' (created ' + esc(when(l.crmCreated)) + ')' : ''}. Not contacted yet – call now, it's the best moment.</div>` : ''}
     ${atRisk(l) ? `<div class="risk">Hot lead – ${l.lastAt ? 'last contact ' + esc(ago(l.lastAt)) : 'not contacted yet'}. Don't let it go cold.</div>` : ''}
@@ -1397,7 +1402,9 @@ function doBadNumber(id){
 function doLater(id, at, stage = 'later'){
   const l = S.leads.get(id); if (!l) return;
   const day = new Date(at).toLocaleDateString([], {day: 'numeric', month: 'short', year: 'numeric'});
-  patchLead(id, {stage, hot: false, fresh: false, nextAt: at}, {k: 'stage', txt: `Moved to ${STAGE[stage]} – contact again ` + day}, {quiet: true});
+  patchLead(id, {stage, hot: false, fresh: false, nextAt: at, needDate: false}, {k: 'stage', txt: `Moved to ${STAGE[stage]} – contact again ` + day}, {quiet: true});
+  /* the date also goes to Bitrix as a to-do with that deadline on the lead */
+  if (bxOn()) bxQueue(S.leads.get(id), 'ld.todo', {id: bxId(S.leads.get(id)) || undefined, deadline: new Date(at).toISOString(), title: `Contact again (${STAGE[stage]})`, text: `${l.name || 'Lead'} – ${STAGE[stage]}: contact again ${day}`}, 'to-do ' + day);
   if (S.focus) advance(STAGE[stage] + ' · back on ' + day); else { closeSheet(); toast(STAGE[stage] + ' · back on Today ' + day); render(); }
 }
 function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(), nextAt: at10(90), noAnswer: 0}, {k:'stage', txt:'Not interested – re-engage in 3 months'}, {quiet: true}); }
@@ -1414,6 +1421,7 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'pickLaterDate': openSheet('laterdate', id, {stage: t.dataset.st}); break;
     case 'laterPick': { const d = new Date(); d.setDate(d.getDate() + +t.dataset.v); d.setHours(10, 0, 0, 0); doLater(id, d.getTime(), t.dataset.st); break; }
     case 'laterSave': { const v = ($('#later_dt') || {}).value; if (!v) { toast('Pick a date'); break; } const d = new Date(v + 'T10:00'); if (d.getTime() < Date.now()) { toast('Pick a date in the future'); break; } doLater(id, d.getTime(), t.dataset.st); break; }
     case 'startWaRun': startWaRun(); break;
