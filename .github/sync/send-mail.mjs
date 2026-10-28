@@ -20,9 +20,10 @@ async function main(){
   for (const d of pending) {
     const m = d.data();
     if (m.sendAt && m.sendAt > Date.now()) continue;                                   /* scheduled for later */
-    if (m.kind === 'followup_email' && m.leadId) {                                      /* not needed if you were in touch since */
+    if (m.leadId && m.kind !== 'invite_email') {
       const l = (await root.collection('leads').doc(m.leadId).get()).data();
-      if (!l || (l.lastAt || 0) > m.createdAt + 60e3 || ['closed', 'lost', 'meeting'].includes(l.stage)) { await d.ref.update({status: 'cancelled'}); continue; }
+      if (l && l.unsub) { await d.ref.update({status: 'cancelled', error: 'client asked to stop'}); continue; }           /* replied "stop": nothing more is sent */
+      if (m.kind === 'followup_email' && (!l || (l.lastAt || 0) > m.createdAt + 60e3 || ['closed', 'lost', 'meeting'].includes(l.stage))) { await d.ref.update({status: 'cancelled'}); continue; }   /* not needed if you were in touch since */
     }
     try {
       await mail.sendMail({from: {name: cfg.myName || '', address: ZOHO_EMAIL.trim()}, to: m.to, subject: m.subject, text: m.text,

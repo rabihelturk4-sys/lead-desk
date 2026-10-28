@@ -160,7 +160,7 @@ async function main(){
           }
           for (const f of found) {
             const src = await imap.download(String(f.uid), undefined, {uid: true}); const parsed = await simpleParser(src.content);
-            const words = replySnippet(parsed.text) || f.subject, stop = /^\s*(stop|stopp|unsubscribe)\b/i.test(words), l = f.l;
+            const words = replySnippet(parsed.text) || f.subject, stop = /^\s*(stop|stopp|unsubscribe|avsluta|стоп|отписаться)(\s|[.!]|$)|^\s*(توقف|إلغاء الاشتراك)/i.test(words), l = f.l;
             const toPipeline = !stop && ['new', 'noanswer', 'pool', 'later', 'workshop', 'lost'].includes(l.stage);
             const patch = {lastAt: f.date, history: hist('Client replied by email: ' + words, 'email'), ...(stop ? {unsub: true} : {}), ...(toPipeline ? {stage: 'talking', stageAt: now, nextAt: now, fresh: false, ...((cfg.bxReq || []).some(q => !(l.bxReq || {})[q.id]) ? {bxReqPending: 'talking'} : {})} : {})};
             await leadsRef.doc(l.id).update(patch);

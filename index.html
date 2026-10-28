@@ -1192,6 +1192,7 @@ function briefing(l){
   const recent = (l.history || []).filter(h => h.k !== 'created').slice(-3).reverse();
   const noDate = ['later','pool'].includes(l.stage) && (l.needDate || !l.nextAt);
   return `<div class="brief">
+    ${l.unsub ? `<div class="banner">Asked to stop updates – no automatic emails or monthly messages are sent. <button class="btn btn-ghost" data-act="unsubToggle" data-id="${l.id}">Allow again</button></div>` : ''}
     ${l.bxReqPending && bxOn() ? `<div class="banner">Bitrix is not moved to ${esc(STAGE[l.bxReqPending])} yet – <button class="btn btn-ghost" data-act="reqOpen" data-id="${l.id}" data-st="${l.bxReqPending}">Answer ${reqMissing(l).length || ''} Bitrix questions</button></div>` : ''}
     ${noDate ? `<div class="banner">${esc(STAGE[l.stage])} without a date – <button class="btn btn-ghost" data-act="pickLaterDate" data-id="${l.id}" data-st="${l.stage}">Pick when to contact again</button></div>` : ''}
     <div class="brief-label">Before you contact</div>
@@ -1449,7 +1450,7 @@ function doNoAnswer(id, ch){
 /* Final email after the 3rd No answer: written to the outbox and sent from your Zoho mailbox by the background service (with your business card).
    Once per lead, only when the lead has an email and it is turned on in Settings → Email. */
 function queueNaMail(l, test){
-  if (!test && (!S.cfg.autoNaMail || !l.email || l.naMailAt)) return false;
+  if (!test && (!S.cfg.autoNaMail || !l.email || l.naMailAt || l.unsub)) return false;
   queueMail(l, 'na_email', test ? {subjectPrefix: '[Test] '} : {});
   return true;
 }
@@ -1475,7 +1476,7 @@ function meetingIcs(l){
 /* One monthly update per lead, on one channel: WhatsApp if you have chatted there (or there is no email), otherwise email.
    After 6 updates with no reaction it slows down to every 3 months; any contact after an update resets that. */
 const hasWaChat = l => (l.history || []).some(h => h.k === 'wa' && !/Monthly WhatsApp/.test(h.txt || ''));
-const monthlyByWa = l => digits(l.phone).length >= 7 && !l.waUnsub && (!l.email || l.unsub || hasWaChat(l));
+const monthlyByWa = l => digits(l.phone).length >= 7 && !l.waUnsub && !l.unsub && (!l.email || hasWaChat(l));   /* "stop" by email stops WhatsApp updates too */
 const monthlyGap = l => (l.monthlyN || 0) >= 6 && !((l.lastAt || 0) > (l.monthlyAt || 0)) ? 90*D : 30*D;
 const monthlyDue = (l, now = Date.now()) => ['pool','later'].includes(l.stage) && (l.lastAt || 0) < now - 7*D && now - (l.monthlyAt || 0) >= monthlyGap(l);
 const monthlyMark = (l, now = Date.now()) => ({monthlyAt: now, monthlyN: (l.lastAt || 0) > (l.monthlyAt || 0) ? 1 : (l.monthlyN || 0) + 1});
@@ -1522,7 +1523,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '42';
+const APP_VER = '43';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1559,7 +1560,8 @@ document.addEventListener('click', e => {
     case 'startWaRun': startWaRun(); break;
     case 'waRunSend': patchLead(id, monthlyMark(S.leads.get(id)), {k: 'wa', txt: 'Monthly WhatsApp update sent'}, {quiet: true}); S.waRun && S.waRun.sent++; later(waRunNext); break;
     case 'waRunSkip': waRunNext(); break;
-    case 'waRunStop': patchLead(id, {waUnsub: true}, {k: 'note', txt: 'No more monthly WhatsApp updates'}, {quiet: true}); waRunNext(); break;
+    case 'waRunStop': patchLead(id, {waUnsub: true, unsub: true}, {k: 'note', txt: 'Asked for no more updates (WhatsApp and email)'}, {quiet: true}); waRunNext(); break;
+    case 'unsubToggle': { const l = S.leads.get(id); patchLead(id, {unsub: !l.unsub, waUnsub: !l.unsub}, {k: 'note', txt: l.unsub ? 'Updates allowed again' : 'No more automatic emails or monthly updates'}, {quiet: true}); render(); break; }
     case 'waRunEnd': S.waRun = null; closeSheet(); render(); break;
     case 'setVoice': S.cfg.voiceLang = t.dataset.v; saveCfg(); renderView(); break;
     case 'startFocus': startFocus(); break;
@@ -1616,7 +1618,7 @@ document.addEventListener('click', e => {
       const kind = /whatsapp/i.test(quick) ? 'wa' : /email/i.test(quick) ? 'email' : 'comment';
       if (box) box.value = '';
       patchLead(id, {lastAt: Date.now()}, {k: kind, txt}); toast('Update saved ' + when(Date.now()));
-      { const l = S.leads.get(id); if (l && l.email && autoOn('autoFollow') && /options shared|brochure sent|payment plan sent/i.test(quick)) queueMail(l, 'followup_email', {sendAt: Date.now() + 3*D}); }
+      { const l = S.leads.get(id); if (l && l.email && autoOn('autoFollow') && /options shared|brochure sent|payment plan sent/i.test(quick)) { if (!l.unsub) queueMail(l, 'followup_email', {sendAt: Date.now() + 3*D}); } }
       break; }
     case 'lost': doLost(id); S.focus ? advance('Marked not interested') : (toast('Marked not interested'), render()); break;
     case 'hot': { const l = S.leads.get(id); const on = !l.hot; patchLead(id, {hot: on, stage: on && ['new','noanswer','talking'].includes(l.stage) ? 'hot' : (!on && l.stage === 'hot' ? 'talking' : l.stage), nextAt: on && (!l.nextAt || l.nextAt > at10(1)) ? at10(1) : l.nextAt}, {k:'stage', txt: on ? 'Marked HOT' : 'Removed HOT'}); toast(on ? 'Marked HOT · follow-up tomorrow' : 'HOT removed'); break; }
