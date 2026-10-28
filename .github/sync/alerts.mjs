@@ -5,6 +5,7 @@
    - client replied by email (Zoho inbox) → alert, comment, lead back to Contacted
    - changes made in Bitrix (stage, new comment) → copied into Lead Desk */
 import {form} from './bitrix-sync.mjs';
+import {coachCfg, isQuiet, isDayOff, aiPlan, weekly, eveningText} from './coach.mjs';
 const H = 3600e3, D = 24 * H;
 const dubai = t => new Date(t + 4 * H);
 const dubaiDay = t => dubai(t).toISOString().slice(0, 10);
@@ -82,21 +83,50 @@ async function main(){
     await bx(hook, 'crm.timeline.comment.add', {fields: {ENTITY_ID: id, ENTITY_TYPE: 'lead', COMMENT: text}}).catch(() => {});
   };
 
-  /* 1. Morning summary */
-  if (hour >= 9 && hour < 12 && sync.morningDay !== day) {
-    await push('Good morning – your Lead Desk day', summary(leads, now)); set.morningDay = day; notes.push('morning summary sent');
+  /* Calm alerts: quiet hours, days off and a daily limit (meeting reminders and client replies always come) */
+  const coach = coachCfg(cfg), quiet = isQuiet(coach, now), off = isDayOff(coach, now) || coach.style === 'off';
+  let used = sync.pushDay === day ? sync.pushCount || 0 : 0;
+  const nudge = async (title, body, url) => { if (quiet || off || used >= coach.maxPerDay) return false; await push(title, body, url); used++; set.pushDay = day; set.pushCount = used; return true; };
+  const priv = (await root.collection('config').doc('private').get()).data() || {};
+  const aiKey = (priv.geminiKey || process.env.GEMINI_API_KEY || '').trim();
+  const coachRef = root.collection('config').doc('coach');
+
+  /* 1. Morning plan from the coach (saved for the Today screen even on days off) */
+  const force = process.env.COACH_FORCE === '1';                    /* manual run from GitHub: build today's plan now */
+  if ((!quiet && hour < 13 && sync.morningDay !== day) || force) {
+    const plan = await aiPlan(aiKey, leads, now, cfg.myName);
+    const doc = {day, at: now, ...plan};
+    if (dubai(now).getUTCDay() === 1 || !sync.weekDay) {   /* Mondays (and the first run): weekly review */
+      doc.weekly = await weekly(aiKey, leads, now, cfg.myName); set.weekDay = day;
+    }
+    await coachRef.set(doc, {merge: false}).catch(() => {});
+    const names = plan.top.map(t => t.name.split(' ')[0]);
+    await nudge(plan.greeting.slice(0, 60), names.length ? `Start with ${names.join(', ')}. Tap for the why.` : 'Nothing urgent today – a good day for Pool leads.', './');
+    set.morningDay = day; notes.push('coach plan' + (plan.ai ? ' (AI)' : '') + (plan.aiError ? ' – AI problem: ' + plan.aiError : ''));
   }
 
-  /* 2. Hot leads going cold (9:00–21:00 Dubai) */
-  if (hour >= 9 && hour < 21) {
-    let n = 0;
-    for (const l of leads.filter(l => goingCold(l, now) && (l.hotAlertAt || 0) < now - D)) {
-      if (n++ >= 3) break;
-      const days = l.lastAt ? Math.floor((now - l.lastAt) / D) : null;
-      await push(`🔥 ${l.name || 'Hot lead'} is going cold`, days ? `No contact for ${days} days – call or message now.` : 'Never contacted – call now.', './?lead=' + l.id);
-      await leadsRef.doc(l.id).update({hotAlertAt: now});
+  /* 2. Hot leads cooling down: one gentle bundled note after lunch, or one per lead in "normal" style */
+  if (hour >= (coach.style === 'normal' ? 9 : 13) && hour < 20) {
+    const cold = leads.filter(l => goingCold(l, now) && (l.hotAlertAt || 0) < now - D);
+    if (cold.length && coach.style === 'normal') {
+      for (const l of cold.slice(0, 3)) {
+        const days = l.lastAt ? Math.floor((now - l.lastAt) / D) : null;
+        if (!await nudge(`🔥 ${l.name || 'Hot lead'} is going cold`, days ? `No contact for ${days} days – a short message is enough.` : 'Never contacted yet.', './?lead=' + l.id)) break;
+        await leadsRef.doc(l.id).update({hotAlertAt: now});
+      }
+    } else if (cold.length && sync.coldDay !== day) {
+      const names = cold.slice(0, 3).map(l => (l.name || 'Lead').split(' ')[0]);
+      if (await nudge(`${cold.length} hot lead${cold.length > 1 ? 's are' : ' is'} cooling`, `${names.join(', ')} – a short WhatsApp keeps it warm.`, cold.length === 1 ? './?lead=' + cold[0].id : './')) {
+        set.coldDay = day; for (const l of cold) await leadsRef.doc(l.id).update({hotAlertAt: now});
+      }
     }
-    if (n) notes.push(n + ' hot alerts');
+  }
+
+  /* 2b. Evening wrap-up (18:00–20:00): what you did and who is first tomorrow */
+  if (hour >= 18 && hour < 20 && sync.eveningDay !== day && coach.style !== 'off') {
+    const e = eveningText(leads, now);
+    if (e.active || coach.style === 'normal') await nudge(e.title, e.body, './');
+    set.eveningDay = day;
   }
 
   /* 3. Meeting reminders */

@@ -109,6 +109,14 @@ h2.sec small{color:var(--muted);font-family:var(--f-body);font-weight:500;font-s
 .updbox{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
 .updbox textarea.input{min-height:70px}
 .movebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.coach{background:var(--card,#fff);border:1px solid var(--line,#e5e7eb);border-radius:16px;padding:14px;margin:12px 0;display:flex;flex-direction:column;gap:8px}
+.coach .clbl{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.coach .cgreet{font-weight:600}
+.coach .crow{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:var(--bg);border:0;border-radius:10px;padding:8px 10px;color:inherit;font:inherit;cursor:pointer}
+.coach .crow span{font-size:13px;color:var(--muted)}
+.coach .ctip{font-size:14px}
+.coach .csug{border-top:1px solid var(--line,#e5e7eb);padding-top:8px;font-size:14px}
+.coach .cweek summary{cursor:pointer;font-weight:600}
 .btn.mic.on{background:#c62828;color:#fff;border-color:#c62828}
 .chip.wa.on{background:var(--wa);border-color:var(--wa);color:#fff}
 .cbtn.off{background:var(--surface2);color:var(--muted)}
@@ -818,12 +826,14 @@ function connect(root){
   }, e => { $('#sync').textContent = 'Sync error'; toast('Could not load leads: ' + e.message); }));
   unsubs.push(db.doc('config/main').onSnapshot(s => { S.cfg = s.exists ? JSON.parse(JSON.stringify(s.data())) : {}; S.cfgLoaded = true; softRender(); if (!pushTried) { pushTried = true; refreshPush();  setTimeout(queueMonthly, 5000); } }, () => {}));
   unsubs.push(db.doc('config/sync').onSnapshot(s => { S.sync = s.exists ? s.data() : null; }, () => {}));
+  unsubs.push(db.doc('config/coach').onSnapshot(s => { S.coach = s.exists ? s.data() : null; softRender(); }, () => {}));
   /* Bitrix link and the "update Bitrix" switch follow you to every device you sign in on (kept in your own account, users/{uid}/config/private) */
   unsubs.push(db.doc('config/private').onSnapshot(s => { const d = s.exists ? s.data() : {}; let ch = false;
     try { if (d.bxHook && localStorage.getItem('bxHook') !== d.bxHook) { localStorage.setItem('bxHook', d.bxHook); ch = true; }
       const on = d.bxOnSet ? d.bxOn : (d.bxHook ? '1' : null);       /* never switched by you: on */
       if (on != null && localStorage.getItem('bxOn') !== on) { localStorage.setItem('bxOn', on); ch = true; } } catch (e) {}
     if (!d.bxHook && bxValid(bxHook())) savePrivate();            /* first device that has it shares it */
+    if (!d.geminiKey && aiProvider(aiKey()) === 'gemini') write('config/private', {geminiKey: aiKey()}, 'merge');   /* the coach can use your free Gemini key */
     if (ch) { softRender(); bxRun(); }
   }, () => {}));
 }
@@ -902,6 +912,37 @@ function row(l){
     <span class="rsub"><span class="pill s-${l.stage}">${esc(STAGE[l.stage] || l.stage)}</span> ${isOpen(l) && winOpen(l) ? '<span class="pill s-meeting">Call now</span> ' : ''}${l.lastAt ? esc('Last: ' + lastContact(l) + (lh ? ' · ' + lh.txt : '')) : 'Not contacted yet'}</span></span>
     <span class="rdue ${over ? 'over' : ''}">${l.nextAt ? (over ? 'Overdue<br>' : '') + esc(when(l.nextAt)) : ''}</span></button>`;
 }
+/* ---------- coach: today's plan (written by the background coach), plus one-tap clean-ups ---------- */
+function suggestions(){
+  const all = [...S.leads.values()], n = Date.now(), out = [];
+  const tired = all.filter(l => l.stage === 'noanswer' && (l.noAnswer || 0) >= 6);
+  if (tired.length) out.push({k: 'pool6', n: tired.length, txt: `${tired.length} lead${tired.length > 1 ? 's' : ''} with 6+ unanswered calls – park in Pool and try again in 3 months?`});
+  const over = all.filter(l => isOpen(l) && l.nextAt && l.nextAt < n - 3*D);
+  if (over.length >= 3) out.push({k: 'spread', n: over.length, txt: `${over.length} follow-ups are more than 3 days late – spread them over the next 3 days?`});
+  const hotNo = all.filter(l => isOpen(l) && isHot(l) && !(l.nextAt > n));
+  if (hotNo.length) out.push({k: 'hotnext', n: hotNo.length, txt: `${hotNo.length} hot lead${hotNo.length > 1 ? 's have' : ' has'} no next step – put them on tomorrow's list?`});
+  return out.filter(x => !((S.cfg.snooze || {})[x.k] > n));
+}
+function applySuggestion(k){
+  const all = [...S.leads.values()], n = Date.now(); let c = 0;
+  if (k === 'pool6') all.filter(l => l.stage === 'noanswer' && (l.noAnswer || 0) >= 6).forEach(l => { const d = new Date(); d.setDate(d.getDate() + 90); d.setHours(10, 0, 0, 0);
+    patchLead(l.id, {stage: 'pool', hot: false, fresh: false, nextAt: d.getTime()}, {k: 'stage', txt: 'Moved to Pool after 6+ unanswered calls – try again in 3 months'}, {quiet: true}); c++; });
+  if (k === 'spread') { const late = all.filter(l => isOpen(l) && l.nextAt && l.nextAt < n - 3*D).sort((a, b) => (isHot(b) - isHot(a)) || a.nextAt - b.nextAt), per = Math.max(1, Math.ceil(late.length / 3));
+    late.forEach((l, i) => { patchLead(l.id, {nextAt: at10(1 + Math.floor(i / per))}, null, {quiet: true}); c++; }); }
+  if (k === 'hotnext') all.filter(l => isOpen(l) && isHot(l) && !(l.nextAt > n)).forEach(l => { patchLead(l.id, {nextAt: at10(1)}, null, {quiet: true}); c++; });
+  toast(`Done – ${c} lead${c === 1 ? '' : 's'} updated`); render();
+}
+function coachCard(){
+  const c = S.coach, sug = suggestions(), today = new Date(Date.now() + 4*H).toISOString().slice(0, 10);
+  const plan = c && c.day === today && c.top ? c : null;
+  if (!plan && !sug.length && !(c && c.weekly)) return '';
+  const rows = plan ? plan.top.filter(t => S.leads.has(t.id)).map(t => `<button class="crow" data-act="open" data-id="${esc(t.id)}"><b>${esc(t.name)}</b><span>${esc(t.why)}</span></button>`).join('') : '';
+  const wk = c && c.weekly && Date.now() - (c.at || 0) < 7*D && !S.cfg.hideWeek ? `<details class="cweek"><summary>This week's review</summary><p>${esc(c.weekly.facts)}</p><ul>${c.weekly.ideas.map(i => `<li>${esc(i)}</li>`).join('')}</ul></details>` : '';
+  return `<section class="coach"><div class="clbl">Your coach${plan && plan.ai ? ' · AI' : ''}</div>
+    ${plan ? `<div class="cgreet">${esc(plan.greeting)}</div>${rows}<div class="ctip">💡 ${esc(plan.tip)}</div>` : ''}
+    ${sug.map(x => `<div class="csug"><span>${esc(x.txt)}</span><div class="actions"><button class="btn btn-ghost" data-act="sugDo" data-k="${x.k}">Do it</button><button class="btn btn-ghost" data-act="sugLater" data-k="${x.k}">Not now</button></div></div>`).join('')}
+    ${wk}</section>`;
+}
 function section(cls, title, arr, emptyTxt, extra = ''){
   if (!arr.length && !emptyTxt) return '';
   return `<section><h2 class="sec ${cls}"><span class="dot"></span>${title} <small>${arr.length || ''}</small></h2>${extra}
@@ -943,7 +984,7 @@ function viewToday(){
   const d = new Date().toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'});
   const bxWarn = bxValid(bxHook()) && !bxOn() ? 'Bitrix updates are off on this device – turn on "Update Bitrix automatically" in Settings → Bitrix24.'
     : S.bxErr ? 'Last Bitrix problem: ' + S.bxErr : '';
-  return `${bxWarn ? `<div class="banner">${esc(bxWarn)}</div>` : ''}<section class="hero">
+  return `${bxWarn ? `<div class="banner">${esc(bxWarn)}</div>` : ''}${coachCard()}<section class="hero">
     <div class="date">${esc(d)}</div>
     <div class="stats">
       <div class="stat hot"><b>${risk.length}</b><span>Hot at risk</span></div>
@@ -1067,6 +1108,16 @@ function viewMsgs(){
     ${bxValid(bxHook()) && Object.keys(S.cfg.bxMap || {}).length ? `<button class="btn btn-ghost" data-act="bxImportAll">Bring in all my Bitrix leads and emails</button><div class="hint" id="bx_sync">${esc(S.bxSyncMsg || 'Adds every Bitrix lead assigned to you that is missing here, in the matching stage, and adds the email from Bitrix to leads that have none. Bitrix is not changed.')}</div>` : ''}
     ${bxValid(bxHook()) ? chipGroup('bxOn', [['0','Off – test first'],['1','Update Bitrix automatically']], bxOn() ? '1' : '0', 'setBxOn') : ''}
     ${bxQ.length ? `<div class="hint">${bxQ.length} update${bxQ.length > 1 ? 's' : ''} waiting to be sent to Bitrix.</div>` : ''}${S.bxErr ? `<div class="banner">Last Bitrix problem: ${esc(S.bxErr)}</div>` : ''}
+  </div>
+  <div class="card form">
+    <h3>Coach</h3>
+    <p class="hint" style="margin:0">Each morning the coach picks who to contact and why, gives one tip, and on Mondays a short weekly review. With a Google Gemini key (below) it writes with AI; without one it uses simple rules. Alerts stay calm with these settings.</p>
+    ${(() => { const c = {style: 'gentle', quietFrom: 20, quietTo: 9, maxPerDay: 3, daysOff: [], ...(S.cfg.coach || {})};
+      return `<div class="field"><span class="lbl">Style</span>${chipGroup('style', [['gentle','Gentle – few, friendly nudges'],['normal','Normal – more reminders'],['off','Off – only meetings and replies']], c.style, 'coachSet')}</div>
+      <div class="field"><span class="lbl">Most alerts per day (meetings and client replies always come)</span>${chipGroup('maxPerDay', [['1','1'],['2','2'],['3','3'],['5','5']], String(c.maxPerDay), 'coachSet')}</div>
+      <div class="field"><span class="lbl">Quiet after</span>${chipGroup('quietFrom', [['18','6 PM'],['19','7 PM'],['20','8 PM'],['21','9 PM']], String(c.quietFrom), 'coachSet')}</div>
+      <div class="field"><span class="lbl">Quiet until</span>${chipGroup('quietTo', [['8','8 AM'],['9','9 AM'],['10','10 AM'],['11','11 AM']], String(c.quietTo), 'coachSet')}</div>
+      <div class="field"><span class="lbl">Days off (no nudges)</span>${chipGroup('daysOff', [['5','Fri'],['6','Sat'],['0','Sun']], (c.daysOff || []).map(String), 'coachSet')}</div>`; })()}
   </div>
   <div class="card form">
     <h3>AI picture reading</h3>
@@ -1454,7 +1505,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '40';
+const APP_VER = '41';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1469,6 +1520,12 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'sugDo': applySuggestion(t.dataset.k); break;
+    case 'sugLater': S.cfg.snooze = {...(S.cfg.snooze || {}), [t.dataset.k]: Date.now() + 3*D}; saveCfg(); render(); toast('Hidden for 3 days'); break;
+    case 'coachSet': { const g = t.dataset.g, v = t.dataset.v; const c = {...(S.cfg.coach || {})};
+      if (g === 'daysOff') { const d = +v, cur = c.daysOff || []; c.daysOff = cur.includes(d) ? cur.filter(x => x !== d) : [...cur, d]; }
+      else c[g] = /^\d+$/.test(v) ? +v : v;
+      S.cfg.coach = c; saveCfg(); renderView(); toast('Saved'); break; }
     case 'bxReqToggle': { const f = (S.bxListFields || []).find(x => x.id === t.dataset.v); if (!f) break; const cur = S.cfg.bxReq || [];
       S.cfg.bxReq = cur.some(q => q.id === f.id) ? cur.filter(q => q.id !== f.id) : [...cur, f]; saveCfg(); renderView(); break; }
     case 'reqOpen': openSheet('reqfields', id, {stage: t.dataset.st}); break;
@@ -1674,7 +1731,7 @@ document.addEventListener('input', e => {
   if (t.id === 'paste_box') { S.pasteText = t.value; return; }
   if (t.id === 'bx_hook') { try { localStorage.setItem('bxHook', t.value.trim()); } catch (e) {} return; }
   if (t.id === 'zoho_host') { try { localStorage.setItem('zohoHost', t.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') || 'mail.zoho.com'); } catch (e) {} return; }
-  if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {}
+  if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {} if (aiProvider(k) === 'gemini') write('config/private', {geminiKey: k}, 'merge');
     const st = $('#ai_state'); if (st) st.textContent = aiProvider(k) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(k) === 'claude' ? '✓ Claude key saved – photos are read with AI' : k ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone.'; return; }
   if (t.id === 'test_num') { try { localStorage.setItem('testNum', t.value); } catch (e) {} const box = $('#callTests'); if (box) box.innerHTML = CALL_MODES.map(([k, l]) => telLink(t.value || '0', 'chip', 'Test ' + l, k)).join(''); return; }
   if (S.tab === 'add' && t.closest('#view')) {

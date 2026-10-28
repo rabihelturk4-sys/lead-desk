@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
+    inputs:
+      coach:
+        description: 'Build the coach plan now (1 = yes)'
+        required: false
+        default: '0'
 
 permissions:
   contents: write
@@ -40,6 +45,7 @@ jobs:
           ZOHO_EMAIL: ${{ secrets.ZOHO_EMAIL }}
           ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
           ZOHO_IMAP_HOST: ${{ secrets.ZOHO_IMAP_HOST }}
+          COACH_FORCE: ${{ github.event.inputs.coach }}
           LEADDESK_UID: ${{ secrets.LEADDESK_UID }}
       - name: Send waiting emails
         if: always()
