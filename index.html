@@ -321,12 +321,13 @@ const CC = {'46':['🇸🇪','Sweden','sv'],'47':['🇳🇴','Norway','en'],'45'
 const digits = p => String(p || '').replace(/\D/g, '').replace(/^00/, '');
 function phoneInfo(p){ const d = digits(p); for (const n of [3,2,1]) { const c = CC[d.slice(0, n)]; if (c) return {flag:c[0], country:c[1], lang:c[2]}; } return {flag:'🌐', country:'', lang:'en'}; }
 
-const TPL_META = [['first','First contact'],['noanswer','Missed call'],['noanswer_late','Missed call – late there'],['intro_email','Email – introduction'],['na_email','Final email after 3rd No answer'],['followup_email','Email – 3 days after sharing info'],['monthly_email','Email – monthly update'],['monthly_wa','WhatsApp – monthly update'],['invite_email','Email – meeting invitation'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
+const TPL_META = [['first','First contact'],['noanswer','Missed call'],['noanswer_known','Missed call – known client'],['noanswer_late','Missed call – late there'],['intro_email','Email – introduction'],['na_email','Final email after 3rd No answer'],['followup_email','Email – 3 days after sharing info'],['monthly_email','Email – monthly update'],['monthly_wa','WhatsApp – monthly update'],['invite_email','Email – meeting invitation'],['declined','Declined my call'],['followup','Follow-up'],['offer',"This week's project"],['meeting_confirm','Confirm meeting'],['meeting_remind','Meeting reminder'],['after_meeting','After meeting'],['reengage','Re-engage cold lead']];
 const TPL_LABEL = Object.fromEntries(TPL_META);
 const DEF_TPL = {
   en: {
     first: "Hi {name}, this is {me} from Dubai real estate. Thank you for your interest! Are you looking to invest or to live in Dubai? I'd love to send you the best options for you.",
-    noanswer: "Hi {name}, {me} here. I just tried to call you about Dubai property. When is a good time for a quick call?",
+    noanswer: "Hi {name}, this is {me} from RTI Real Estate. I just tried to call you about your Dubai property inquiry. There are some really strong offers running right now that make it easier than ever to buy. When is a good time for a quick call?",
+    noanswer_known: "Hi {name}, it's {me} again 😊 I just tried to call you – I came across some great new offers that fit what we talked about, and I didn't want you to miss them. When suits you for a quick chat? Even a short voice message is fine.",
     noanswer_late: "Hi {name}, {me} here. I just tried to call you about Dubai property. I see it is late in your country now, so I will call you tomorrow. Have a good evening!",
     na_email: "Dear {name},\n\nMy name is {me}, and I am a property consultant with RTI Real Estate in Dubai. I am contacting you regarding your recent inquiry about property in Dubai.\n\nI have tried to reach you by phone, text message and WhatsApp, but unfortunately we have not been able to connect yet. This email is my final attempt to reach you, as I did not want to leave your inquiry unanswered.\n\nI would be glad to help you find the right option. So that I can advise you properly, could you briefly share what you are looking for?\n• Is it for investment, to live in, or a holiday home?\n• Which type of property and which area do you have in mind?\n• Your approximate budget and timeline\n\nPlease also let me know how you prefer to stay in touch – phone call, WhatsApp or email – and a time that suits you. I will follow up the way you prefer.\n\n{card}If now is not the right time, simply reply to this email and I will not contact you again.\n\nKind regards,",
     intro_email: "Dear {name},\n\nMy name is {me}, and I am a property consultant with RTI Real Estate in Dubai. Thank you for your inquiry about property in Dubai.\n\nI tried to reach you by phone but was not able to get through, so I wanted to follow up by email.\n\nI would be glad to help you find the right option. So that I can advise you properly, could you briefly share what you are looking for?\n• Is it for investment, to live in, or a holiday home?\n• Which type of property and which area do you have in mind?\n• Your approximate budget and timeline\n\nPlease also let me know how you prefer to stay in touch – phone call, WhatsApp or email – and a time that suits you.\n\nI look forward to hearing from you.\n\nKind regards,",
@@ -344,7 +345,8 @@ const DEF_TPL = {
   },
   sv: {
     first: "Hej {name}, det är {me} som jobbar med fastigheter i Dubai. Tack för ditt intresse! Letar du efter en investering eller ett boende i Dubai? Jag skickar gärna de bästa alternativen för dig.",
-    noanswer: "Hej {name}, {me} här. Jag försökte precis ringa dig angående fastigheter i Dubai. När passar det med ett kort samtal?",
+    noanswer: "Hej {name}, det är {me} från RTI Real Estate. Jag försökte precis ringa dig angående din förfrågan om fastigheter i Dubai. Just nu finns det riktigt bra erbjudanden som gör det enklare än någonsin att köpa. När passar det med ett kort samtal?",
+    noanswer_known: "Hej {name}, det är {me} igen 😊 Jag försökte nyss ringa – jag har hittat några riktigt bra nya erbjudanden som passar det vi pratade om, och ville inte att du skulle missa dem. När passar det med en kort pratstund? Ett kort röstmeddelande går också bra.",
     noanswer_late: "Hej {name}, {me} här. Jag försökte precis ringa dig angående fastigheter i Dubai. Jag ser att det är sent hos dig nu, så jag ringer dig i morgon istället. Ha en fin kväll!",
     na_email: "Hej {name},\n\nMitt namn är {me} och jag är fastighetsrådgivare på RTI Real Estate i Dubai. Jag hör av mig angående din förfrågan om fastigheter i Dubai.\n\nJag har försökt nå dig via telefon, sms och WhatsApp, men tyvärr har vi inte fått kontakt ännu. Det här mejlet är mitt sista försök att nå dig, eftersom jag inte vill lämna din förfrågan obesvarad.\n\nJag hjälper dig gärna att hitta rätt alternativ. För att kunna ge dig bästa möjliga råd vore det fint om du kort berättar vad du söker:\n• Är det som investering, för att bo själv eller som fritidsbostad?\n• Vilken typ av bostad och vilket område har du i åtanke?\n• Ungefärlig budget och tidsplan\n\nBerätta också gärna hur du helst vill hålla kontakten – telefon, WhatsApp eller e-post – och vilken tid som passar dig. Jag återkommer då på det sätt du föredrar.\n\n{card}Om det inte passar just nu räcker det att du svarar på det här mejlet, så hör jag inte av mig igen.\n\nMed vänliga hälsningar,",
     intro_email: "Hej {name},\n\nMitt namn är {me} och jag är fastighetsrådgivare på RTI Real Estate i Dubai. Tack för din förfrågan om fastigheter i Dubai.\n\nJag försökte nå dig på telefon men fick inte tag på dig, så jag ville följa upp via mejl.\n\nJag hjälper dig gärna att hitta rätt alternativ. För att kunna ge dig bästa möjliga råd vore det fint om du kort berättar vad du söker:\n• Är det som investering, för att bo själv eller som fritidsbostad?\n• Vilken typ av bostad och vilket område har du i åtanke?\n• Ungefärlig budget och tidsplan\n\nBerätta också gärna hur du helst vill hålla kontakten – telefon, WhatsApp eller e-post – och vilken tid som passar dig.\n\nJag ser fram emot att höra från dig.\n\nMed vänliga hälsningar,",
@@ -362,7 +364,8 @@ const DEF_TPL = {
   },
   ar: {
     first: "مرحباً {name}، معك {me} من عقارات دبي. شكراً لاهتمامك! هل تبحث عن استثمار أم سكن في دبي؟ يسعدني أن أرسل لك أفضل الخيارات المناسبة لك.",
-    noanswer: "مرحباً {name}، معك {me}. حاولت الاتصال بك بخصوص عقارات دبي. متى يناسبك وقت لمكالمة قصيرة؟",
+    noanswer: "مرحباً {name}، معك {me} من RTI Real Estate. حاولت الاتصال بك بخصوص استفسارك عن العقارات في دبي. هناك عروض قوية جداً حالياً تجعل الشراء أسهل من أي وقت مضى. متى يناسبك وقت لمكالمة قصيرة؟",
+    noanswer_known: "مرحباً {name}، معك {me} مرة أخرى 😊 حاولت الاتصال بك قبل قليل – وجدت عروضاً جديدة ممتازة تناسب ما تحدثنا عنه، ولم أرغب أن تفوتك. متى يناسبك أن نتحدث قليلاً؟ رسالة صوتية قصيرة تكفي أيضاً.",
     noanswer_late: "مرحباً {name}، معك {me}. حاولت الاتصال بك بخصوص عقارات دبي. أرى أن الوقت متأخر عندك الآن، لذلك سأتصل بك غداً. مساء الخير!",
     na_email: "مرحباً {name}،\n\nاسمي {me}، مستشار عقاري لدى RTI Real Estate في دبي. أتواصل معك بخصوص استفسارك الأخير عن العقارات في دبي.\n\nحاولت التواصل معك عبر الهاتف والرسائل النصية وواتساب، ولكن للأسف لم نتمكن من التواصل حتى الآن. هذه الرسالة هي محاولتي الأخيرة للتواصل معك، لأنني لا أرغب في ترك استفسارك دون رد.\n\nيسعدني مساعدتك في إيجاد الخيار المناسب. ولأتمكن من تقديم أفضل استشارة لك، أرجو أن تخبرني باختصار عمّا تبحث عنه:\n• هل الهدف استثمار أم سكن أم منزل لقضاء العطلات؟\n• ما نوع العقار والمنطقة التي تفضلها؟\n• الميزانية التقريبية والإطار الزمني\n\nكما أرجو أن تخبرني بالطريقة التي تفضلها للتواصل – مكالمة هاتفية أو واتساب أو بريد إلكتروني – والوقت المناسب لك، وسأتابع معك بالطريقة التي تفضلها.\n\n{card}إذا لم يكن الوقت مناسباً الآن، يكفي أن ترد على هذه الرسالة ولن أتواصل معك مجدداً.\n\nمع أطيب التحيات،",
     intro_email: "مرحباً {name}،\n\nاسمي {me}، مستشار عقاري لدى RTI Real Estate في دبي. شكراً لاستفسارك عن العقارات في دبي.\n\nحاولت الاتصال بك هاتفياً ولكن لم أتمكن من الوصول إليك، لذلك أحببت أن أتابع معك عبر البريد الإلكتروني.\n\nيسعدني مساعدتك في إيجاد الخيار المناسب. ولأتمكن من تقديم أفضل استشارة لك، أرجو أن تخبرني باختصار عمّا تبحث عنه:\n• هل الهدف استثمار أم سكن أم منزل لقضاء العطلات؟\n• ما نوع العقار والمنطقة التي تفضلها؟\n• الميزانية التقريبية والإطار الزمني\n\nكما أرجو أن تخبرني بالطريقة التي تفضلها للتواصل – مكالمة هاتفية أو واتساب أو بريد إلكتروني – والوقت المناسب لك.\n\nأتطلع إلى سماع ردك.\n\nمع أطيب التحيات،",
@@ -380,7 +383,8 @@ const DEF_TPL = {
   },
   ru: {
     first: "Здравствуйте, {name}! Это {me}, недвижимость в Дубае. Спасибо за ваш интерес! Вы рассматриваете инвестицию или жильё в Дубае? С удовольствием подберу для вас лучшие варианты.",
-    noanswer: "Здравствуйте, {name}! Это {me}. Не получается до вас дозвониться по поводу недвижимости в Дубае. Когда вам удобно коротко поговорить?",
+    noanswer: "Здравствуйте, {name}! Это {me} из RTI Real Estate. Пытался дозвониться вам по поводу вашего запроса о недвижимости в Дубае. Сейчас действуют очень выгодные предложения, с которыми купить проще, чем когда-либо. Когда вам удобно коротко поговорить?",
+    noanswer_known: "Здравствуйте, {name}! Это снова {me} 😊 Только что пытался дозвониться – нашёл отличные новые предложения, которые подходят под то, что мы обсуждали, и не хотел, чтобы вы их пропустили. Когда вам удобно коротко пообщаться? Можно и голосовым сообщением.",
     noanswer_late: "Здравствуйте, {name}! Это {me}. Пытался дозвониться вам по поводу недвижимости в Дубае. Вижу, что у вас уже поздно, поэтому позвоню завтра. Хорошего вечера!",
     na_email: "Здравствуйте, {name}!\n\nМеня зовут {me}, я консультант по недвижимости в компании RTI Real Estate в Дубае. Пишу вам по поводу вашего запроса о недвижимости в Дубае.\n\nЯ пытался связаться с вами по телефону, через SMS и WhatsApp, но, к сожалению, пока не получилось. Это письмо — моя последняя попытка связаться с вами, так как я не хочу оставлять ваш запрос без ответа.\n\nБуду рад помочь вам подобрать подходящий вариант. Чтобы дать вам лучший совет, расскажите, пожалуйста, коротко, что вы ищете:\n• Это инвестиция, жильё для себя или дом для отдыха?\n• Какой тип недвижимости и какой район вас интересуют?\n• Примерный бюджет и сроки\n\nТакже сообщите, пожалуйста, как вам удобнее поддерживать связь — звонок, WhatsApp или e-mail — и в какое время. Я свяжусь с вами удобным для вас способом.\n\n{card}Если сейчас не самое подходящее время, просто ответьте на это письмо, и я больше не буду вас беспокоить.\n\nС уважением,",
     intro_email: "Здравствуйте, {name}!\n\nМеня зовут {me}, я консультант по недвижимости в компании RTI Real Estate в Дубае. Спасибо за ваш запрос о недвижимости в Дубае.\n\nЯ пытался дозвониться до вас, но не смог, поэтому решил написать вам по электронной почте.\n\nБуду рад помочь вам подобрать подходящий вариант. Чтобы дать вам лучший совет, расскажите, пожалуйста, коротко, что вы ищете:\n• Это инвестиция, жильё для себя или дом для отдыха?\n• Какой тип недвижимости и какой район вас интересуют?\n• Примерный бюджет и сроки\n\nТакже сообщите, пожалуйста, как вам удобнее поддерживать связь — звонок, WhatsApp или e-mail — и в какое время.\n\nБуду рад вашему ответу.\n\nС уважением,",
@@ -438,13 +442,15 @@ const CARD_LINE = {en: 'I have attached my business card so you have my details.
   ar: 'أرفقت لك بطاقة العمل الخاصة بي لتكون لديك بيانات التواصل.\n\n', ru: 'Прикрепляю свою визитную карточку, чтобы у вас были мои контакты.\n\n'};
 const PROJ_LINE = {en: ['One project I can especially recommend right now is ', ' in ', ', starting from '], sv: ['Ett projekt jag särskilt kan rekommendera just nu är ', ' i ', ', från '],
   ar: ['من المشاريع التي أنصح بها بشكل خاص حالياً ', ' في ', '، تبدأ الأسعار من '], ru: ['Особенно рекомендую сейчас проект ', ' в районе ', ', цены от ']};
+/* Your name in messages: Settings name, else the first line of the email signature, else Rabih */
+const myName = () => (S.cfg.myName || (S.cfg.emailSig || '').split('\n')[0] || 'Rabih').trim();
 function fill(txt, l){
   const f = S.cfg.focus || {}; const first = (l.name || '').trim().split(/\s+/)[0] || '';
   const mt = l.meetingAt ? new Date(l.meetingAt).toLocaleString(LOCALE[l.lang] || 'en-GB', {weekday:'long', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit', timeZoneName:'short'}) : '';
   const P = PROJ_LINE[l.lang] || PROJ_LINE.en;
   const map = {card: S.cfg.cardName ? CARD_LINE[l.lang] || CARD_LINE.en : '', link: l.meetLink || '',
     projectline: f.project ? '\n\n' + P[0] + f.project + (f.area ? P[1] + f.area : '') + (f.price ? P[2] + f.price : '') + '.' : '',
-    linkline: l.meetLink ? '\n\n' + (LINK_LBL[l.lang] || LINK_LBL.en) + l.meetLink : '', name:first, me:S.cfg.myName || '', project:f.project || l.project || '', area:f.area || '', price:f.price || '', plan:f.plan || '', handover:f.handover || '', meeting:mt};
+    linkline: l.meetLink ? '\n\n' + (LINK_LBL[l.lang] || LINK_LBL.en) + l.meetLink : '', name:first, me:myName(), project:f.project || l.project || '', area:f.area || '', price:f.price || '', plan:f.plan || '', handover:f.handover || '', meeting:mt};
   return txt.replace(/\{(\w+)\}/g, (m, k) => k in map ? map[k] : m).replace(/\s+([,.!?،])/g, '$1');
 }
 const DEF_SUBJ = {
@@ -486,11 +492,14 @@ function botimLink(){
   return 'https://web.botim.me/';
 }
 const botimTarget = () => IS_MOBILE ? '' : 'target="_blank" rel="noopener"';
+/* Someone you have already talked with gets a warmer, more personal text */
+const knownClient = l => (l.history || []).some(h => ['talk', 'meeting'].includes(h.k) || /replied/i.test(h.txt || '')) || ['talking', 'hot', 'meeting', 'nego'].includes(l.stage) && !!l.lastAt;
 function msgLink(ch, l, k){
   const L = l.lang || 'en';
   if (ch === 'botim') return botimLink();
   if (k === 'noanswer' && ch === 'email') k = 'intro_email';
   else if (k === 'noanswer' && lateThere(l)) k = 'noanswer_late';
+  else if (k === 'noanswer' && knownClient(l)) k = 'noanswer_known';
   if (k === 'own') return ch === 'sms' ? smsLink(l) : ch === 'email' ? mailLink(l, '', mailSig() ? '\n\n' + mailSig() : '') : waLink(l);
   const txt = tplText(L, k, l);
   if (ch === 'sms') return smsLink(l, txt);
@@ -741,6 +750,14 @@ function reqGuess(q, l){                       /* pre-pick the Bitrix answer fro
   const src = /budget/i.test(q.name) ? l.budget : /purpose|goal/i.test(q.name) ? l.purpose : /timing|when/i.test(q.name) ? l.timeline : /bedroom/i.test(q.name) ? (l.ptype || '').replace(/\D/g, '') || (/studio/i.test(l.ptype || '') ? 'studio' : '') : /type/i.test(q.name) ? l.ptype : '';
   if (!src || !q.items) return ''; const n = x => String(x).toLowerCase().replace(/[^a-z0-9]/g, ''), v = n(src);
   const hit = q.items.find(i => n(i.v) === v) || q.items.find(i => v && (n(i.v).includes(v) || v.includes(n(i.v)))); return hit ? hit.id : '';
+}
+/* Lead Desk already shows this stage but Bitrix may not: tap it again to send it to Bitrix */
+function bxResend(l){
+  const map = S.cfg.bxMap || {};
+  if (!bxOn() || !map[l.stage]) { toast('Already in ' + STAGE[l.stage]); return; }
+  if (REQ_STAGES.includes(l.stage) && reqMissing(l).length) { openSheet('reqfields', l.id, {stage: l.stage}); return; }
+  bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[l.stage], ...bxDateFields(l), ...(l.bxReq || {})}}, 'stage ' + STAGE[l.stage]);
+  toast('Already ' + STAGE[l.stage] + ' here – sent to Bitrix again');
 }
 function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
@@ -1505,7 +1522,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '41';
+const APP_VER = '42';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1575,7 +1592,8 @@ document.addEventListener('click', e => {
     case 'noansMsg': { const ch = t.dataset.ch || 'wa'; doNoAnswer(id, ch); later(() => S.focus ? advance(`No answer + ${CH[ch]} logged`) : (toast('Logged · follow-up set'), render())); break; }
     case 'declined': doDeclined(id); later(() => S.focus ? advance('Declined call logged') : (toast('Declined logged · next try ' + when(S.leads.get(id).nextAt)), render())); break;
     case 'badnum': doBadNumber(id); S.focus ? advance('Number not working logged') : (toast(S.leads.get(id).stage === 'lost' ? 'Number failed 3 times – moved to Lost' : 'Logged · try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')), render()); break;
-    case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k; if (l.stage === k && k !== 'later' && k !== 'pool') break;
+    case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k;
+      if (l.stage === k && k !== 'later' && k !== 'pool') { bxResend(l); break; }
       if (k === 'later' || k === 'pool') { openSheet('laterdate', id, {stage: k}); break; }
       if (k === 'junk') { if (!doJunk(id)) break;
         if (S.focus) advance('Junked'); else { closeSheet(); toast('Junked – removed'); render(); } break; }
