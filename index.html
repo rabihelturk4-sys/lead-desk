@@ -50,6 +50,9 @@ a{color:inherit}
 
 header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
 header.top .wrap{display:flex;align-items:center;gap:12px;padding-block:12px}
+.hsearch{margin-left:auto;border:1px solid var(--line);background:transparent;border-radius:10px;min-width:40px;min-height:36px;font-size:16px;cursor:pointer}
+.rnum{font-size:12px;color:var(--muted);font-weight:500}
+mark{background:#ffe08a;color:inherit;border-radius:3px;padding:0 1px}
 header h1{font-family:var(--f-display);font-size:19px;margin:0;letter-spacing:-.01em}
 header h1 span{color:var(--accent)}
 #sync{margin-left:auto;font-size:12px;color:var(--muted)}
@@ -244,7 +247,7 @@ nav.tabs button{position:relative}
 </head>
 <body>
 
-<header class="top"><div class="wrap"><h1>Lead<span>Desk</span></h1><span id="sync">Connecting…</span></div></header>
+<header class="top"><div class="wrap"><h1>Lead<span>Desk</span></h1><span id="sync">Connecting…</span><button class="hsearch" data-act="goSearch" aria-label="Search leads" title="Search leads (press /)">🔍</button></div></header>
 <main><div class="wrap" id="view"><div class="empty">Loading your leads…</div></div></main>
 <nav class="tabs"><div class="wrap">
   <button data-act="tab" data-tab="today" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/><circle cx="12" cy="12" r="4"/></svg>Today</button>
@@ -595,6 +598,8 @@ async function bxRun(){
         if (job.method === 'crm.timeline.comment.add') job.params.fields.ENTITY_ID = id; else job.params.id = id;
       }
       if (job.method === 'ld.comment') await bxAddComment(job.params.id, job.params.text);
+      else if (job.method === 'ld.phone') { const cur = await bxCall('crm.lead.get', {id: job.params.id}), ph = (cur && cur.PHONE || [])[0];
+        await bxCall('crm.lead.update', {id: job.params.id, fields: {PHONE: [ph && ph.ID ? {ID: ph.ID, VALUE: job.params.phone, VALUE_TYPE: ph.VALUE_TYPE || 'MOBILE'} : {VALUE: job.params.phone, VALUE_TYPE: 'MOBILE'}]}}); }
       else if (job.method === 'ld.todo') await bxCall('crm.activity.todo.add', {ownerTypeId: 1, ownerId: job.params.id, deadline: job.params.deadline, title: job.params.title, description: job.params.text});
       else await bxCall(job.method, job.params);
       bxDrop(job); bxSave(); S.bxErr = '';
@@ -768,6 +773,22 @@ function bxResend(l){
   bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[l.stage], ...bxDateFields(l), ...(l.bxReq || {})}}, 'stage ' + STAGE[l.stage]);
   toast('Already ' + STAGE[l.stage] + ' here – sent to Bitrix again');
 }
+/* Country code fix: tap a country and the number becomes +code… (a leading 0 is dropped); Bitrix gets the same number */
+const CC_PICK = [['44','🇬🇧 UK'],['971','🇦🇪 UAE'],['46','🇸🇪 Sweden'],['966','🇸🇦 Saudi'],['974','🇶🇦 Qatar'],['965','🇰🇼 Kuwait'],['49','🇩🇪 Germany'],['33','🇫🇷 France'],['47','🇳🇴 Norway'],['45','🇩🇰 Denmark'],['7','🇷🇺 Russia'],['1','🇺🇸 USA'],['91','🇮🇳 India']];
+const noCountry = l => { const raw = String(l.phone || '').trim(); return !!raw && (!phoneInfo(raw).country || /^0(?!0)/.test(raw)); };
+const ccChips = l => `<div class="hint" style="margin-top:6px">${noCountry(l) ? '⚠ No country code – tap the country:' : 'Change country code:'}</div><div class="chips">${CC_PICK.map(([c, t]) => `<button type="button" class="chip" data-act="setCC" data-id="${l.id}" data-v="${c}">${t} +${c}</button>`).join('')}</div>`;
+function setCountryCode(id, code){
+  const l = S.leads.get(id); if (!l) return;
+  let d = String(l.phone || '').replace(/\D/g, '').replace(/^00/, '');
+  if (/^0/.test(String(l.phone || '').trim()) || !phoneInfo(d).country) d = d.replace(/^0+/, ''); else { const cur = Object.keys(CC).filter(k => d.startsWith(k)).sort((a, b) => b.length - a.length)[0]; if (cur) d = d.slice(cur.length).replace(/^0+/, ''); }
+  if (d.startsWith(code) && d.length > code.length + 7) d = d.slice(code.length);
+  const phone = '+' + code + d, other = [...S.leads.values()].find(x => x.id !== id && digits(x.phone) === digits(phone));
+  if (other) { toast('Not changed: ' + other.name + ' already has ' + phone); return; }
+  const info = phoneInfo(phone);
+  patchLead(id, {phone, flag: info.flag, country: info.country, ...(l.lang && l.lang !== 'en' ? {} : {lang: info.lang})}, {k: 'note', txt: 'Phone corrected to ' + phone}, {quiet: true});
+  if (bxOn()) bxQueue(S.leads.get(id), 'ld.phone', {id: bxId(l) || undefined, phone}, 'phone number');
+  toast('Number is now ' + phone); renderSheet(); render();
+}
 function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
   const map = S.cfg.bxMap || {};
@@ -930,11 +951,11 @@ function nextLeadAfter(id){
 }
 function setTab(t){ S.tab = t; document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t)); if (t === 'add') S.draft = {}; renderView(); window.scrollTo(0,0); }
 
-function row(l){
+function row(l, q){
   const lh = lastHist(l); const over = l.nextAt && l.nextAt < Date.now() && isOpen(l);
   return `<button class="row" data-act="open" data-id="${l.id}">
     <span class="av ${isHot(l) ? 'hot' : ''}">${esc(initials(l.name))}</span>
-    <span class="rmain"><span class="rname">${l.fresh ? '<span class="pill newbadge">NEW</span> ' : ''}${esc(l.flag || '')} ${esc(l.name || 'No name')} ${l.hot ? '<span class="flame">●</span>' : ''} ${l.example ? '<span class="pill ex">Example</span>' : ''}</span>
+    <span class="rmain"><span class="rname">${l.fresh ? '<span class="pill newbadge">NEW</span> ' : ''}${esc(l.flag || '')} ${q ? hl(l.name || 'No name', q) : esc(l.name || 'No name')}${(l.leadNo || l.bxId) ? ` <span class="rnum">#${esc(l.leadNo || l.bxId)}</span>` : ''} ${l.hot ? '<span class="flame">●</span>' : ''} ${l.example ? '<span class="pill ex">Example</span>' : ''}</span>
     <span class="rsub"><span class="pill s-${l.stage}">${esc(STAGE[l.stage] || l.stage)}</span> ${isOpen(l) && winOpen(l) ? '<span class="pill s-meeting">Call now</span> ' : ''}${l.lastAt ? esc('Last: ' + lastContact(l) + (lh ? ' · ' + lh.txt : '')) : 'Not contacted yet'}</span></span>
     <span class="rdue ${over ? 'over' : ''}">${l.nextAt ? (over ? 'Overdue<br>' : '') + esc(when(l.nextAt)) : ''}</span></button>`;
 }
@@ -1034,19 +1055,40 @@ function viewToday(){
   ${all.length ? '' : `<div class="empty">No leads yet. Tap <b>Add lead</b> below to add your first one. It takes about 10 seconds.</div>`}`;
 }
 function viewLeadsShell(){
-  return `<div class="search"><input class="input" id="q" type="search" placeholder="Search name, phone, project…" value="${esc(S.q)}" autocomplete="off">
+  return `<div class="search"><input class="input" id="q" type="search" placeholder="Search name, lead number, phone, email…" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search">
     <div class="chips scroll" id="stageChips"></div><div class="chips scroll" id="countryChips"></div>
     <div class="chips" id="sortChips"></div></div><div id="leadList" style="display:flex;flex-direction:column;gap:16px"></div>`;
 }
+/* Search: lead number, name (any part, any letters order of words), phone digits, email, project, country, notes and comments.
+   While searching, all stages are searched; the stage chips then narrow the results. */
+const norm = x => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[#]/g, '');
+function searchScore(l, q){
+  const toks = norm(q).split(/\s+/).filter(Boolean); if (!toks.length) return 1;
+  const nm = norm(l.name), nums = [l.leadNo, l.bxId, l.id.replace(/^X/, '')].filter(Boolean).map(String), ph = digits(l.phone);
+  const hay = norm([l.name, l.email, l.project, l.country, l.note, l.crm, l.source, l.campaign, ...(l.history || []).slice(-15).map(h => h.txt)].join(' '));
+  let score = 0;
+  for (const t of toks) {
+    const td = t.replace(/\D/g, '');
+    if (td && td.length === t.length && nums.some(n => n === td)) { score += 200; continue; }          /* exact lead number */
+    if (td && td.length === t.length && nums.some(n => n.startsWith(td))) { score += 120; continue; }
+    if (nm.startsWith(t)) { score += 80; continue; }
+    if (nm.split(/\s+/).some(w => w.startsWith(t))) { score += 60; continue; }
+    if (nm.includes(t)) { score += 40; continue; }
+    if (td.length >= 3 && (ph.includes(td) || ph.includes(td.replace(/^0+/, '')))) { score += 50; continue; }   /* also a local number like 0791… */
+    if (hay.includes(t)) { score += 15; continue; }
+    return 0;                                                                                             /* every word must match */
+  }
+  return l.stage === 'junkbx' ? Math.max(1, score - 50) : score;          /* junked leads last */
+}
+const hl = (txt, q) => { let h = esc(txt); for (const t of norm(q).split(/\s+/).filter(x => x.length > 1)) h = h.replace(new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>'); return h; };
 function renderLeadList(){
   const box = $('#leadList'); if (!box) return;
-  const all = [...S.leads.values()];
-  const cnt = k => all.filter(l => k === 'open' ? isOpen(l) : k === 'all' ? l.stage !== 'junkbx' : k === 'hotf' ? isHot(l) && isOpen(l) : l.stage === k).length;
+  const q = S.q.trim(), scores = new Map();
+  const all = [...S.leads.values()].filter(l => { if (!q) return true; const sc = searchScore(l, q); if (sc) scores.set(l.id, sc); return sc > 0; });
+  const cnt = k => all.filter(l => k === 'open' ? isOpen(l) : k === 'all' ? (q || l.stage !== 'junkbx') : k === 'hotf' ? isHot(l) && isOpen(l) : l.stage === k).length;
   const filters = [['open','Active'],['hotf','Hot'],...STAGES,['all','All'],['junkbx','🗑 Junked in Bitrix']];      /* junked leads only under their own chip */
   $('#stageChips').innerHTML = filters.map(([k, t]) => `<button class="chip ${S.stageF === k ? 'on' : ''}" data-act="stageF" data-k="${k}">${esc(t)}<small>${cnt(k)}</small></button>`).join('');
-  const q = S.q.trim().toLowerCase();
-  let list = all.filter(l => S.stageF === 'open' ? isOpen(l) : S.stageF === 'all' ? l.stage !== 'junkbx' : S.stageF === 'hotf' ? isHot(l) && isOpen(l) : l.stage === S.stageF);
-  if (q) list = list.filter(l => [l.name, l.phone, l.email, l.project, l.country, l.note].join(' ').toLowerCase().includes(q) || (digits(q) && digits(l.phone).includes(digits(q))));
+  let list = all.filter(l => S.stageF === 'open' ? isOpen(l) : S.stageF === 'all' ? (q || l.stage !== 'junkbx') : S.stageF === 'hotf' ? isHot(l) && isOpen(l) : l.stage === S.stageF);
   const cc = {}; list.forEach(l => { const k = l.country || 'Other'; cc[k] = (cc[k] || 0) + 1; });
   const flagOf = {}; all.forEach(l => { flagOf[l.country || 'Other'] = l.flag || '🌐'; });
   $('#countryChips').innerHTML = `<button class="chip ${!S.countryF ? 'on' : ''}" data-act="countryF" data-k="">All countries</button>` + Object.keys(cc).sort((a, b) => cc[b] - cc[a]).map(k => `<button class="chip ${S.countryF === k ? 'on' : ''}" data-act="countryF" data-k="${esc(k)}">${esc(flagOf[k])} ${esc(k)}<small>${cc[k]}</small></button>`).join('');
@@ -1054,7 +1096,12 @@ function renderLeadList(){
   if (S.countryF) list = list.filter(l => (l.country || 'Other') === S.countryF);
   const sortT = (a, b) => (winOpen(b) - winOpen(a)) || (callWindows(a)[0][0] - callWindows(b)[0][0]) || (isHot(b) - isHot(a)) || ((a.nextAt || 9e15) - (b.nextAt || 9e15));
   if (!S.ready) { box.innerHTML = '<div class="empty">Loading your leads…</div>'; return; }
-  if (!list.length) { box.innerHTML = `<div class="empty">No leads match.</div>`; return; }
+  if (!list.length) { box.innerHTML = `<div class="empty">${q ? `Nothing found for “${esc(q)}”${S.stageF !== 'all' ? ` in ${esc((filters.find(f => f[0] === S.stageF) || [])[1] || '')} – <button class="btn btn-ghost" data-act="stageF" data-k="all">search all stages</button>` : ''}. Try fewer letters or the lead number.` : 'No leads match.'}</div>`; return; }
+  if (q) {                                       /* best matches first */
+    list.sort((a, b) => scores.get(b.id) - scores.get(a.id) || (a.name || '').localeCompare(b.name || ''));
+    box.innerHTML = `<h2 class="sec">${list.length} result${list.length > 1 ? 's' : ''} for “${esc(q)}”</h2><div class="list">${list.slice(0, 200).map(l => row(l, q)).join('')}</div>`;
+    S.listIds = list.map(l => l.id); return;
+  }
   S.listIds = list.map(l => l.id);
   const groups = new Map();
   if (S.sortBy === 'country') { list.sort((a, b) => (a.country || 'Other').localeCompare(b.country || 'Other') || sortT(a, b)); list.forEach(l => { const k = (l.flag || '🌐') + ' ' + (l.country || 'Other') + ' · call ' + winText(l); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }); }
@@ -1202,6 +1249,7 @@ function briefing(l){
   const recent = (l.history || []).filter(h => h.k !== 'created').slice(-3).reverse();
   const noDate = ['later','pool'].includes(l.stage) && (l.needDate || !l.nextAt);
   return `<div class="brief">
+    ${noCountry(l) ? `<div class="banner">The number ${esc(l.phone)} has no country code – calls and WhatsApp may fail. <button class="btn btn-ghost" data-act="ccOpen" data-id="${l.id}">Fix the country code</button></div>` : ''}
     ${l.stage === 'junkbx' ? `<div class="banner">Junked in Bitrix – not on your calling lists. <button class="btn btn-ghost" data-act="unjunk" data-id="${l.id}">Bring back to ${esc(STAGE[l.prevStage && l.prevStage !== 'junkbx' ? l.prevStage : 'noanswer'])}</button></div>` : ''}
     ${l.unsub ? `<div class="banner">Asked to stop updates – no automatic emails or monthly messages are sent. <button class="btn btn-ghost" data-act="unsubToggle" data-id="${l.id}">Allow again</button></div>` : ''}
     ${l.bxReqPending && bxOn() ? `<div class="banner">Bitrix is not moved to ${esc(STAGE[l.bxReqPending])} yet – <button class="btn btn-ghost" data-act="reqOpen" data-id="${l.id}" data-st="${l.bxReqPending}">Answer ${reqMissing(l).length || ''} Bitrix questions</button></div>` : ''}
@@ -1375,7 +1423,7 @@ function renderSheet(){
       + `<details class="edit" id="editBox" ${S.editOpen ? 'open' : ''}><summary>Profile &amp; stage</summary><div class="inner">
         <div class="field"><span class="lbl">Stage</span>${chipGroup('stage', STAGES, l.stage, 'setField', `data-id="${l.id}"`)}</div>
         <div class="field"><label for="e_name">Name</label><input class="input" id="e_name" data-edit="name" data-id="${l.id}" value="${esc(l.name || '')}"></div>
-        <div class="field"><label for="e_phone">Phone</label><input class="input" id="e_phone" type="tel" data-edit="phone" data-id="${l.id}" value="${esc(l.phone || '')}"></div>
+        <div class="field"><label for="e_phone">Phone</label><input class="input" id="e_phone" type="tel" data-edit="phone" data-id="${l.id}" value="${esc(l.phone || '')}">${ccChips(l)}</div>
         <div class="field"><label for="e_email">Email</label><input class="input" id="e_email" type="email" inputmode="email" data-edit="email" data-id="${l.id}" value="${esc(l.email || '')}" placeholder="name@example.com"></div>
         <div class="field"><span class="lbl">Message language</span>${chipGroup('lang', LANGS, l.lang || 'en', 'setField', `data-id="${l.id}"`)}</div>
         <div class="field"><span class="lbl">Budget</span>${chipGroup('budget', OPT.budget, l.budget, 'setField', `data-id="${l.id}"`)}</div>
@@ -1534,7 +1582,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '46';
+const APP_VER = '48';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1549,6 +1597,8 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'setCC': setCountryCode(id, t.dataset.v); break;
+    case 'ccOpen': S.editOpen = true; renderSheet(); setTimeout(() => { const e = $('#e_phone'); if (e) e.scrollIntoView({block: 'center'}); }, 50); break;
     case 'unjunk': { const l = S.leads.get(id), back = l.prevStage && !['junkbx', 'junk'].includes(l.prevStage) ? l.prevStage : 'noanswer';
       patchLead(id, {stage: back, nextAt: back === 'noanswer' || back === 'talking' ? nextWindowAt(l) : l.nextAt || null}, {k: 'stage', txt: 'Brought back from Junk to ' + STAGE[back]}); toast('Back in ' + STAGE[back]); render(); break; }
     case 'sugDo': applySuggestion(t.dataset.k); break;
@@ -1591,6 +1641,7 @@ document.addEventListener('click', e => {
       saveSession(); break; }
     case 'skip': S.lastCall = null; S.afterCall = null; S.focus.i++; renderFocus(); $('#focus').scrollTo(0,0); break;
     case 'stageF': S.stageF = t.dataset.k; renderLeadList(); break;
+    case 'goSearch': if (S.sheet) closeSheet(); if (S.focus) { S.focus = null; renderFocus(); } setTab('leads'); setTimeout(() => { const i = $('#q'); if (i) { i.focus(); i.select(); } }, 50); break;
     case 'countryF': S.countryF = t.dataset.k; renderLeadList(); break;
     case 'sortBy': S.sortBy = t.dataset.k; renderLeadList(); break;
     case 'dial': { if (id) { S.lastCall = {id, t: Date.now()}; saveSession(); } let copied = false; try { navigator.clipboard.writeText(t.dataset.v).then(() => {}, () => {}); copied = true; } catch (_) {}
@@ -1763,7 +1814,10 @@ document.addEventListener('click', e => {
 
 document.addEventListener('input', e => {
   const t = e.target;
-  if (t.id === 'q') { S.q = t.value; renderLeadList(); return; }
+  if (t.id === 'q') { const was = S.q.trim(); S.q = t.value;
+    if (!was && S.q.trim()) { S.stageBeforeSearch = S.stageF; S.stageF = 'all'; }                  /* search everything, then narrow with the chips */
+    else if (was && !S.q.trim() && S.stageBeforeSearch) { S.stageF = S.stageBeforeSearch; S.stageBeforeSearch = null; }
+    renderLeadList(); return; }
   if (t.id === 'paste_box') { S.pasteText = t.value; return; }
   if (t.id === 'bx_hook') { try { localStorage.setItem('bxHook', t.value.trim()); } catch (e) {} return; }
   if (t.id === 'zoho_host') { try { localStorage.setItem('zohoHost', t.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') || 'mail.zoho.com'); } catch (e) {} return; }
@@ -2101,6 +2155,9 @@ document.addEventListener('change', async e => { if (e.target.id !== 'card_file'
 });
 document.addEventListener('change', e => { if (e.target.id !== 'imp_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(importLeads); });
 document.addEventListener('toggle', e => { if (e.target.id === 'editBox') S.editOpen = e.target.open; }, true);
+document.addEventListener('keydown', e => {                 /* laptop: press / or Ctrl+K to search */
+  const typing = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
+  if ((e.key === '/' && !typing) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) { e.preventDefault(); const b = document.querySelector('[data-act=goSearch]'); if (b) b.click(); } });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.sheet) userClose(); else if (S.focus) { S.focus = null; render(); } } });
 render();
 startApp();
