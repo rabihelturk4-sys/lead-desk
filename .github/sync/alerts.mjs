@@ -11,7 +11,8 @@ const dubai = t => new Date(t + 4 * H);
 const dubaiDay = t => dubai(t).toISOString().slice(0, 10);
 const hhmm = t => dubai(t).toISOString().slice(11, 16);
 const stamp = t => { const d = dubai(t), z = n => String(n).padStart(2, '0'); return `${z(d.getUTCDate())}-${z(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${z(d.getUTCHours())},${z(d.getUTCMinutes())}`; };
-const CLOSED = ['closed', 'lost', 'junk', 'later', 'pool', 'workshop'];
+const CLOSED = ['closed', 'lost', 'junk', 'junkbx', 'later', 'pool', 'workshop'];
+const junkPatch = l => ({stage: 'junkbx', prevStage: l.stage, hot: false, nextAt: null, fresh: false});
 const NAMES = {new: 'New', noanswer: 'No answer', talking: 'Contacted', hot: 'HOT', meeting: 'Meeting booked', nego: 'Negotiation', later: 'Buy later', pool: 'Pool', workshop: 'Workshop', closed: 'Closed', lost: 'Lost'};
 export const isOpen = l => !CLOSED.includes(l.stage);
 export const isHot = l => !!l.hot || ['hot', 'meeting', 'nego'].includes(l.stage);
@@ -181,6 +182,8 @@ async function main(){
   /* 5. Changes made in Bitrix come back */
   if (hasHook && Object.keys(map).length) {
     try {
+      const st = (await bx(hook, 'crm.status.list', {filter: {ENTITY_ID: 'STATUS'}})).result || [];
+      var failed = new Set(st.filter(x => (x.EXTRA || {}).SEMANTICS === 'F' || /junk/i.test(x.STATUS_ID)).map(x => x.STATUS_ID)); if (map.junk) failed.add(map.junk);
       const since = sync.bxBackAt;
       if (!since) set.bxBackAt = now;
       else {
@@ -191,17 +194,28 @@ async function main(){
         }
         const byBx = new Map(leads.filter(l => l.bxId || l.leadNo).map(l => [String(l.bxId || l.leadNo), l]));
         let changed = 0;
+        /* once a day: every lead of yours that is junked in Bitrix (any junk reason) leaves the calling lists */
+        if (sync.junkScanDay !== day) {
+          let start = 0, n = 0;
+          for (;;) {
+            const j = await bx(hook, 'crm.lead.list', {filter: {ASSIGNED_BY_ID: me, STATUS_ID: [...failed]}, select: ['ID'], order: {ID: 'ASC'}, start});
+            for (const b of j.result || []) { const l = byBx.get(String(b.ID)); if (l && l.stage !== 'junkbx') { await leadsRef.doc(l.id).update({...junkPatch(l), history: hist('Junked in Bitrix – removed from your calling lists')}); l.stage = 'junkbx'; n++; } }
+            if (!j.next) break; start = j.next;
+          }
+          set.junkScanDay = day; if (n) notes.push(n + ' junked leads moved out of the lists');
+        }
         for (const b of rows) {
           const l = byBx.get(String(b.ID)); if (!l || b.STATUS_ID === cfg.bxInStage) continue;
           const patch = {}, notesHere = [];
           const fits = Object.keys(map).filter(k => k !== 'junk' && map[k] === b.STATUS_ID);
           const bxDate = cfg.bxDateField && b[cfg.bxDateField] ? Date.parse(b[cfg.bxDateField]) : NaN, dated = bxDate > now;
           const fresh = (l.stageAt && l.stageAt > now - 2 * H) || l.bxReqPending;                /* you changed it in Lead Desk just now: Lead Desk wins */
-          if (fits.length && !fits.includes(l.stage) && !fresh) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + (NAMES[fits[0]] || fits[0]));
+          if (failed.has(b.STATUS_ID)) { if (l.stage !== 'junkbx') { Object.assign(patch, junkPatch(l)); notesHere.push('Junked in Bitrix – removed from your calling lists'); } }
+          else if (fits.length && !fits.includes(l.stage) && !fresh) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + (NAMES[fits[0]] || fits[0]));
             if (['later', 'pool'].includes(fits[0])) {                 /* use the next contact date from Bitrix, or Lead Desk asks for one */
               Object.assign(patch, {hot: false, needDate: !dated, nextAt: dated ? bxDate : null});
               if (dated) notesHere.push('Contact again ' + dubaiDay(bxDate) + ' (date from Bitrix)'); } }
-          else if (map.junk && b.STATUS_ID === map.junk && l.stage !== 'lost') { patch.stage = 'lost'; patch.hot = false; patch.nextAt = null; notesHere.push('Set to Junk in Bitrix'); }
+
           else if (['later', 'pool'].includes(l.stage) && dated && Math.abs(bxDate - (l.nextAt || 0)) > D) {   /* date changed in Bitrix */
             Object.assign(patch, {nextAt: bxDate, needDate: false}); notesHere.push('Contact again date changed in Bitrix → ' + dubaiDay(bxDate)); }
           const top = topComment(b.COMMENTS);

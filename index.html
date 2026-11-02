@@ -299,7 +299,7 @@ function lastContact(l){ if (!l.lastAt) return 'Never contacted';
   const exact = (l.history || []).some(h => h.k !== 'created' && h.k !== 'note' && h.k !== 'stage' && Math.abs(h.t - l.lastAt) < 60e3) || l.crmTimeKnown;
   return date + (exact ? ', ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''); }
 function winNext(l){ const h = dubaiHour(); const nx = callWindows(l).find(([a]) => a > h); return nx ? 'opens ' + fmtH(nx[0]) : 'closed for today'; }
-const STAGE = Object.fromEntries([...STAGES, ['junk','Junk']]);   /* Junk is not a stage to keep leads in: the lead is removed */
+const STAGE = Object.fromEntries([...STAGES, ['junk','Junk'], ['junkbx','Junked in Bitrix']]);   /* Junk is not a stage to keep leads in: the lead is removed */
 const OPT = {
   budget: ['< 1M AED','1–2M AED','2–5M AED','5M+ AED'],
   purpose: ['Investment','To live','Golden visa','Holiday home'],
@@ -418,7 +418,7 @@ function when(t){ if (!t) return '—'; const d = new Date(t), n = new Date(); c
   const y = new Date(n); y.setDate(n.getDate() - 1); if (d.toDateString() === y.toDateString()) return 'Yesterday ' + tm;
   return d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'}) + ' ' + tm; }
 const endToday = () => { const d = new Date(); d.setHours(23,59,59,999); return d.getTime(); };
-const isOpen = l => !['closed','lost','junk','later','pool','workshop'].includes(l.stage);
+const isOpen = l => !['closed','lost','junk','junkbx','later','pool','workshop'].includes(l.stage);
 /* How this lead may be contacted (a contact preference, not a stage) */
 const WAYS = [['any','Calls + WhatsApp'],['wa','WhatsApp only'],['call','Calls only'],['sms','SMS only']];
 const WAY = Object.fromEntries(WAYS);
@@ -1041,11 +1041,11 @@ function viewLeadsShell(){
 function renderLeadList(){
   const box = $('#leadList'); if (!box) return;
   const all = [...S.leads.values()];
-  const cnt = k => all.filter(l => k === 'open' ? isOpen(l) : k === 'all' ? true : k === 'hotf' ? isHot(l) && isOpen(l) : l.stage === k).length;
-  const filters = [['open','Active'],['hotf','Hot'],...STAGES,['all','All']];
+  const cnt = k => all.filter(l => k === 'open' ? isOpen(l) : k === 'all' ? l.stage !== 'junkbx' : k === 'hotf' ? isHot(l) && isOpen(l) : l.stage === k).length;
+  const filters = [['open','Active'],['hotf','Hot'],...STAGES,['all','All'],['junkbx','🗑 Junked in Bitrix']];      /* junked leads only under their own chip */
   $('#stageChips').innerHTML = filters.map(([k, t]) => `<button class="chip ${S.stageF === k ? 'on' : ''}" data-act="stageF" data-k="${k}">${esc(t)}<small>${cnt(k)}</small></button>`).join('');
   const q = S.q.trim().toLowerCase();
-  let list = all.filter(l => S.stageF === 'open' ? isOpen(l) : S.stageF === 'all' ? true : S.stageF === 'hotf' ? isHot(l) && isOpen(l) : l.stage === S.stageF);
+  let list = all.filter(l => S.stageF === 'open' ? isOpen(l) : S.stageF === 'all' ? l.stage !== 'junkbx' : S.stageF === 'hotf' ? isHot(l) && isOpen(l) : l.stage === S.stageF);
   if (q) list = list.filter(l => [l.name, l.phone, l.email, l.project, l.country, l.note].join(' ').toLowerCase().includes(q) || (digits(q) && digits(l.phone).includes(digits(q))));
   const cc = {}; list.forEach(l => { const k = l.country || 'Other'; cc[k] = (cc[k] || 0) + 1; });
   const flagOf = {}; all.forEach(l => { flagOf[l.country || 'Other'] = l.flag || '🌐'; });
@@ -1202,6 +1202,7 @@ function briefing(l){
   const recent = (l.history || []).filter(h => h.k !== 'created').slice(-3).reverse();
   const noDate = ['later','pool'].includes(l.stage) && (l.needDate || !l.nextAt);
   return `<div class="brief">
+    ${l.stage === 'junkbx' ? `<div class="banner">Junked in Bitrix – not on your calling lists. <button class="btn btn-ghost" data-act="unjunk" data-id="${l.id}">Bring back to ${esc(STAGE[l.prevStage && l.prevStage !== 'junkbx' ? l.prevStage : 'noanswer'])}</button></div>` : ''}
     ${l.unsub ? `<div class="banner">Asked to stop updates – no automatic emails or monthly messages are sent. <button class="btn btn-ghost" data-act="unsubToggle" data-id="${l.id}">Allow again</button></div>` : ''}
     ${l.bxReqPending && bxOn() ? `<div class="banner">Bitrix is not moved to ${esc(STAGE[l.bxReqPending])} yet – <button class="btn btn-ghost" data-act="reqOpen" data-id="${l.id}" data-st="${l.bxReqPending}">Answer ${reqMissing(l).length || ''} Bitrix questions</button></div>` : ''}
     ${noDate ? `<div class="banner">${esc(STAGE[l.stage])} without a date – <button class="btn btn-ghost" data-act="pickLaterDate" data-id="${l.id}" data-st="${l.stage}">Pick when to contact again</button></div>` : ''}
@@ -1533,7 +1534,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '45';
+const APP_VER = '46';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1548,6 +1549,8 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'unjunk': { const l = S.leads.get(id), back = l.prevStage && !['junkbx', 'junk'].includes(l.prevStage) ? l.prevStage : 'noanswer';
+      patchLead(id, {stage: back, nextAt: back === 'noanswer' || back === 'talking' ? nextWindowAt(l) : l.nextAt || null}, {k: 'stage', txt: 'Brought back from Junk to ' + STAGE[back]}); toast('Back in ' + STAGE[back]); render(); break; }
     case 'sugDo': applySuggestion(t.dataset.k); break;
     case 'sugLater': S.cfg.snooze = {...(S.cfg.snooze || {}), [t.dataset.k]: Date.now() + 3*D}; saveCfg(); render(); toast('Hidden for 3 days'); break;
     case 'coachSet': { const g = t.dataset.g, v = t.dataset.v; const c = {...(S.cfg.coach || {})};
@@ -1657,7 +1660,7 @@ document.addEventListener('click', e => {
     case 'saveTalk': { const l = S.leads.get(id), F = S.form; const said = F.said || []; const temp = F.temp || 'Warm';
       const note = ($('#talk_note').value || '').trim();
       const todos = said.map(x => TODO_MAP[x]).filter(Boolean);
-      let stage = l.stage; if (temp === 'Hot' && ['new','noanswer','talking'].includes(stage)) stage = 'hot'; else if (['new','noanswer','lost','junk'].includes(stage)) stage = 'talking'; else if (temp !== 'Hot' && stage === 'hot') stage = 'talking';
+      let stage = l.stage; if (temp === 'Hot' && ['new','noanswer','talking'].includes(stage)) stage = 'hot'; else if (['new','noanswer','lost','junk','junkbx'].includes(stage)) stage = 'talking'; else if (temp !== 'Hot' && stage === 'hot') stage = 'talking';
       patchLead(id, {stage, hot: temp === 'Hot', lastOutcome: 'talk', badNumber: 0, rule: l.rule && /^Number not working/.test(l.rule) ? '' : (l.rule || ''), said, todo: todos.length ? [...new Set(todos)].join(', ') : (l.todo || ''), noAnswer: 0, lastAt: Date.now(), nextAt: NEXT_FN[F.next || '3']()},
         {k:'talk', txt: `Talked (${temp.toLowerCase()})` + (said.length ? ': ' + said.join(', ') : '') + (note ? ' – ' + note : '')}, {quiet: true});
       S.focus ? advance('Call saved') : (closeSheet(), toast('Saved · next follow-up ' + when(S.leads.get(id).nextAt)), render()); break; }
