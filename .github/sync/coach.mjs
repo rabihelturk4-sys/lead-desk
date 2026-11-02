@@ -68,9 +68,9 @@ export async function aiPlan(key, leads, now, name){
   const base = rulePlan(leads, now, name), list = candidates(leads, now).slice(0, 15);
   if (!key || !list.length) return base;
   const rows = list.map(c => ({id: c.l.id, name: first(c.l.name), stage: c.l.stage, country: c.l.country || '', hot: HOT(c.l), noAnswer: c.l.noAnswer || 0, reason: c.why,
-    last: String(((c.l.history || []).filter(h => h.k !== 'created').slice(-1)[0] || {}).txt || '').slice(0, 120)}));
+    last: String(((c.l.history || []).filter(h => h.k !== 'created').slice(-1)[0] || {}).txt || '').slice(0, 120), about: String(c.l.about || '').slice(0, 160)}));
   const y = activity(leads, now - D, now);
-  const prompt = `${COACH(name)}\n\nYesterday: ${JSON.stringify(y)}\nLeads worth contacting today (JSON): ${JSON.stringify(rows)}\n\nPick the 3 most valuable to contact today and give each a reason of max 12 words that helps them start the conversation. Then one practical tip for today (max 25 words) based on the data. Greeting max 15 words.\nReply only JSON: {"greeting":"","top":[{"id":"","why":""}],"tip":""}`;
+  const prompt = `${COACH(name)}\n\nYesterday: ${JSON.stringify(y)}\nLeads worth contacting today (JSON): ${JSON.stringify(rows)}\n\nPick the 3 most valuable to contact today and give each a reason of max 15 words that helps them start the conversation (use \"about\" when it is filled). Then one practical tip for today (max 25 words) based on the data. Greeting max 15 words.\nReply only JSON: {"greeting":"","top":[{"id":"","why":""}],"tip":""}`;
   try {
     const j = await gemini(key, prompt), byId = new Map(list.map(c => [c.l.id, c.l]));
     const top = (j.top || []).filter(t => byId.has(t.id)).slice(0, 3).map(t => ({id: t.id, name: byId.get(t.id).name || 'Lead', why: String(t.why || '').slice(0, 120)}));

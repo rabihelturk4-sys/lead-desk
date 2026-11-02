@@ -52,6 +52,8 @@ header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background
 header.top .wrap{display:flex;align-items:center;gap:12px;padding-block:12px}
 .hsearch{margin-left:auto;border:1px solid var(--line);background:transparent;border-radius:10px;min-width:40px;min-height:36px;font-size:16px;cursor:pointer}
 .rnum{font-size:12px;color:var(--muted);font-weight:500}
+.about{background:var(--bg);border-radius:10px;padding:8px 10px;font-size:14px;margin:6px 0}
+.lookups a{color:inherit;text-decoration:underline}
 mark{background:#ffe08a;color:inherit;border-radius:3px;padding:0 1px}
 header h1{font-family:var(--f-display);font-size:19px;margin:0;letter-spacing:-.01em}
 header h1 span{color:var(--accent)}
@@ -1059,6 +1061,53 @@ function viewLeadsShell(){
     <div class="chips scroll" id="stageChips"></div><div class="chips scroll" id="countryChips"></div>
     <div class="chips" id="sortChips"></div></div><div id="leadList" style="display:flex;flex-direction:column;gap:16px"></div>`;
 }
+/* Public look-ups you open yourself (one person at a time): LinkedIn and Google by name; company website from a work email */
+const FREEMAIL = /@(gmail|googlemail|hotmail|outlook|live|msn|yahoo|ymail|icloud|me|mac|aol|proton|protonmail|gmx|web|mail|yandex|zoho|hotmail\.co|telia|bredband|comhem)\./i;
+function lookupLinks(l){
+  if (!l.name || /^(no name|lead \d+)$/i.test(l.name)) return '';
+  const nm = encodeURIComponent(l.name), dom = l.email && !FREEMAIL.test(l.email) ? l.email.split('@')[1] : '';
+  return `<div class="hint lookups">Look up: <a href="https://www.linkedin.com/search/results/people/?keywords=${nm}" target="_blank" rel="noopener">LinkedIn</a> · <a href="https://www.google.com/search?q=${encodeURIComponent('"' + l.name + '"' + (l.country ? ' ' + l.country : ''))}" target="_blank" rel="noopener">Google</a>${dom ? ` · works at? <a href="https://${esc(dom)}" target="_blank" rel="noopener">${esc(dom)}</a>` : ''} – add what you learn under Profile → About this person</div>`;
+}
+/* Not in Lead Desk? Look it up in Bitrix (lead number, name, phone or email) and bring it in with its comments */
+const bxFindBtn = q => bxValid(bxHook()) ? `<button class="btn btn-ghost btn-big" data-act="bxFind" data-v="${esc(q)}">🔎 Find “${esc(q)}” in Bitrix</button>` : '';
+const BX_SEL = ['ID', 'TITLE', 'NAME', 'LAST_NAME', 'PHONE', 'EMAIL', 'STATUS_ID', 'SOURCE_ID', 'COMMENTS', 'DATE_CREATE', 'DATE_MODIFY'];
+async function bxFind(q){
+  openSheet('bxfind', null, {q, busy: true, rows: []});
+  try {
+    const ids = new Set(), add = arr => (arr || []).forEach(x => ids.add(String(x.ID || x)));
+    const d = q.replace(/\D/g, ''), em = /\S+@\S+\.\S+/.test(q);
+    if (em) { const r = await bxCall('crm.duplicate.findbycomm', {entity_type: 'LEAD', type: 'EMAIL', values: [q.trim()]}); add(r && r.LEAD); }
+    else if (d.length >= 7 && d.length === q.replace(/[\s+()-]/g, '').length) {
+      for (const v of new Set(['+' + d.replace(/^00/, ''), d, d.replace(/^0+/, '')])) { const r = await bxCall('crm.duplicate.findbycomm', {entity_type: 'LEAD', type: 'PHONE', values: [v]}); add(r && r.LEAD); }
+    }
+    let rows = [];
+    if (d && d.length <= 8 && d.length === q.trim().replace(/^#/, '').length) { try { const one = await bxCall('crm.lead.get', {id: d}); if (one) rows.push(one); } catch (e) {} }
+    if (ids.size) rows.push(...(await bxCall('crm.lead.list', {filter: {ID: [...ids]}, select: BX_SEL}) || []));
+    if (!rows.length && !em && !/^\d+$/.test(d === q.trim() ? d : 'x')) {                              /* name: any part of first name, last name or title */
+      const w = q.trim().split(/\s+/), seen = new Set();
+      for (const f of [{'%NAME': w[0]}, {'%LAST_NAME': w[w.length - 1]}, {'%TITLE': q.trim()}]) for (const b of await bxCall('crm.lead.list', {filter: f, select: BX_SEL, order: {DATE_CREATE: 'DESC'}}) || []) if (!seen.has(b.ID)) { seen.add(b.ID); rows.push(b); }
+      if (w.length > 1) rows = rows.filter(b => w.every(t => norm([b.NAME, b.LAST_NAME, b.TITLE].join(' ')).includes(norm(t))));
+    }
+    const uniq = new Map(rows.map(b => [String(b.ID), b]));
+    S.sheet = {...S.sheet, busy: false, rows: [...uniq.values()].slice(0, 20)};
+  } catch (e) { S.sheet = {...S.sheet, busy: false, err: e.message || e.code}; }
+  if (S.sheet && S.sheet.type === 'bxfind') renderSheet();
+}
+function bxExisting(b){ const phone = ((b.PHONE || [])[0] || {}).VALUE || '', email = ((b.EMAIL || [])[0] || {}).VALUE || '';
+  return [...S.leads.values()].find(l => bxId(l) === String(b.ID)) || findByPhone(phone) || findByEmail(email); }
+async function bxBringIn(b){
+  const map = S.cfg.bxMap || {}, back = {}; for (const k of ['noanswer','talking','workshop','pool','later','new','hot','meeting','nego','closed','lost']) if (map[k] && !back[map[k]]) back[map[k]] = k;
+  const stage = back[b.STATUS_ID] || 'noanswer', phone = ((b.PHONE || [])[0] || {}).VALUE || '', email = ((b.EMAIL || [])[0] || {}).VALUE || '';
+  const name = [b.NAME, b.LAST_NAME].filter(Boolean).join(' ') || b.TITLE || 'Lead ' + b.ID, id = 'X' + b.ID;
+  const lead = newLeadDoc({name, phone, email, notes: b.COMMENTS ? String(b.COMMENTS).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').trim() : '', source: b.SOURCE_ID || 'Bitrix'});
+  const hist = [{t: Date.now(), k: 'created', txt: 'Brought in from Bitrix (lead #' + b.ID + ')'}];
+  try { (await bxCall('crm.timeline.comment.list', {filter: {ENTITY_ID: b.ID, ENTITY_TYPE: 'lead'}}) || []).slice(-30).forEach(c => { const t = String(c.COMMENT || '').replace(/\[\/?[a-z]+[^\]]*\]/gi, '').replace(/<[^>]+>/g, ' ').trim();
+    if (t) hist.push({t: Date.parse(c.CREATED) || Date.now(), k: 'note', txt: 'Bitrix comment: ' + t.slice(0, 1000)}); }); } catch (e) {}
+  Object.assign(lead, {stage, bxId: String(b.ID), leadNo: String(b.ID), crmCreated: b.DATE_CREATE ? Date.parse(b.DATE_CREATE) : Date.now(), lastAt: b.DATE_MODIFY ? Date.parse(b.DATE_MODIFY) : null, history: hist.sort((a, c) => a.t - c.t)});
+  lead.nextAt = ['noanswer','talking','new','hot','meeting','nego'].includes(stage) ? nextWindowAt(lead) : null;
+  if (['later','pool'].includes(stage)) lead.needDate = true;
+  S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set'); return id;
+}
 /* Search: lead number, name (any part, any letters order of words), phone digits, email, project, country, notes and comments.
    While searching, all stages are searched; the stage chips then narrow the results. */
 const norm = x => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[#]/g, '');
@@ -1096,10 +1145,10 @@ function renderLeadList(){
   if (S.countryF) list = list.filter(l => (l.country || 'Other') === S.countryF);
   const sortT = (a, b) => (winOpen(b) - winOpen(a)) || (callWindows(a)[0][0] - callWindows(b)[0][0]) || (isHot(b) - isHot(a)) || ((a.nextAt || 9e15) - (b.nextAt || 9e15));
   if (!S.ready) { box.innerHTML = '<div class="empty">Loading your leads…</div>'; return; }
-  if (!list.length) { box.innerHTML = `<div class="empty">${q ? `Nothing found for “${esc(q)}”${S.stageF !== 'all' ? ` in ${esc((filters.find(f => f[0] === S.stageF) || [])[1] || '')} – <button class="btn btn-ghost" data-act="stageF" data-k="all">search all stages</button>` : ''}. Try fewer letters or the lead number.` : 'No leads match.'}</div>`; return; }
+  if (!list.length) { box.innerHTML = `<div class="empty">${q ? `Not in Lead Desk: “${esc(q)}”${S.stageF !== 'all' ? ` in ${esc((filters.find(f => f[0] === S.stageF) || [])[1] || '')} – <button class="btn btn-ghost" data-act="stageF" data-k="all">search all stages</button>` : ''}. Try fewer letters or the lead number.` : 'No leads match.'}</div>${q ? bxFindBtn(q) : ''}`; return; }
   if (q) {                                       /* best matches first */
     list.sort((a, b) => scores.get(b.id) - scores.get(a.id) || (a.name || '').localeCompare(b.name || ''));
-    box.innerHTML = `<h2 class="sec">${list.length} result${list.length > 1 ? 's' : ''} for “${esc(q)}”</h2><div class="list">${list.slice(0, 200).map(l => row(l, q)).join('')}</div>`;
+    box.innerHTML = `<h2 class="sec">${list.length} result${list.length > 1 ? 's' : ''} for “${esc(q)}”</h2><div class="list">${list.slice(0, 200).map(l => row(l, q)).join('')}</div>${bxFindBtn(q)}`;
     S.listIds = list.map(l => l.id); return;
   }
   S.listIds = list.map(l => l.id);
@@ -1255,6 +1304,8 @@ function briefing(l){
     ${l.bxReqPending && bxOn() ? `<div class="banner">Bitrix is not moved to ${esc(STAGE[l.bxReqPending])} yet – <button class="btn btn-ghost" data-act="reqOpen" data-id="${l.id}" data-st="${l.bxReqPending}">Answer ${reqMissing(l).length || ''} Bitrix questions</button></div>` : ''}
     ${noDate ? `<div class="banner">${esc(STAGE[l.stage])} without a date – <button class="btn btn-ghost" data-act="pickLaterDate" data-id="${l.id}" data-st="${l.stage}">Pick when to contact again</button></div>` : ''}
     <div class="brief-label">Before you contact</div>
+    ${l.about ? `<div class="about">👤 ${esc(l.about)}</div>` : ''}
+    ${lookupLinks(l)}
     ${l.fresh ? `<div class="freshban"><b>NEW LEAD from Bitrix</b> – arrived ${esc(ago(l.freshAt || l.createdAt))}${l.crmCreated ? ' (created ' + esc(when(l.crmCreated)) + ')' : ''}. Not contacted yet – call now, it's the best moment.</div>` : ''}
     ${atRisk(l) ? `<div class="risk">Hot lead – ${l.lastAt ? 'last contact ' + esc(ago(l.lastAt)) : 'not contacted yet'}. Don't let it go cold.</div>` : ''}
     ${l.stage === 'meeting' && l.meetingAt ? `<div class="meetb">Meeting: ${esc(when(l.meetingAt))}${l.meetingKind ? ' · ' + esc(l.meetingKind) : ''}</div>` : ''}
@@ -1390,6 +1441,16 @@ function closeSheet(){ S.sheet = null; $('#sheetWrap').hidden = true; $('#sheet'
 function head(title, sub){ return `<div class="grab"></div><div class="shead"><div style="flex:1;min-width:0"><h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ''}</div><button class="x" data-act="closeSheet" aria-label="Close">✕</button></div>`; }
 function renderSheet(){
   const s = S.sheet; if (!s) return; const l = S.leads.get(s.id); const box = $('#sheet');
+  if (s.type === 'bxfind') {
+    const names = Object.fromEntries((S.bxStatuses || []).map(x => [x.STATUS_ID, x.NAME]));
+    box.innerHTML = head('Bitrix: “' + esc(s.q) + '”', s.busy ? 'Searching Bitrix…' : (s.rows.length ? s.rows.length + ' found' : 'Nothing found in Bitrix'))
+      + (s.err ? `<div class="banner">${esc(s.err)}</div>` : '')
+      + `<div class="list">${(s.rows || []).map(b => { const ex = bxExisting(b), ph = ((b.PHONE || [])[0] || {}).VALUE || '', em = ((b.EMAIL || [])[0] || {}).VALUE || '';
+        return `<div class="card"><b>${esc([b.NAME, b.LAST_NAME].filter(Boolean).join(' ') || b.TITLE || 'Lead')}</b> <span class="rnum">#${esc(b.ID)}</span>
+          <div class="hint">${esc([ph, em, names[b.STATUS_ID] || b.STATUS_ID, b.DATE_CREATE ? 'created ' + new Date(b.DATE_CREATE).toLocaleDateString() : ''].filter(Boolean).join(' · '))}</div>
+          ${ex ? `<button class="btn btn-ghost" data-act="open" data-id="${ex.id}">Already in Lead Desk – open</button>` : `<button class="btn btn-primary" data-act="bxBring" data-v="${esc(b.ID)}">Add to Lead Desk</button>`}</div>`; }).join('')}</div>`;
+    return;
+  }
   if (!l) { closeSheet(); return; }
   let h = '';
   if (s.type === 'reqfields') {
@@ -1431,6 +1492,7 @@ function renderSheet(){
         <div class="field"><span class="lbl">Unit</span>${chipGroup('ptype', OPT.ptype, l.ptype, 'setField', `data-id="${l.id}"`)}</div>
         <div class="field"><span class="lbl">When to buy</span>${chipGroup('timeline', OPT.timeline, l.timeline, 'setField', `data-id="${l.id}"`)}</div>
         <div class="field"><span class="lbl">Source</span>${chipGroup('source', OPT.source, l.source, 'setField', `data-id="${l.id}"`)}</div>
+        <div class="field"><label for="e_about">About this person (job, company, family, hobbies, what matters to them)</label><textarea class="input" id="e_about" data-edit="about" data-id="${l.id}" placeholder="e.g. Surgeon in Stockholm, 2 kids, plays padel, wants rental income, decides with wife">${esc(l.about || '')}</textarea></div>
         <div class="field"><label for="e_project">Interested in</label><input class="input" id="e_project" data-edit="project" data-id="${l.id}" value="${esc(l.project || '')}"></div>
         <div class="field"><label for="e_todo">Promised next step</label><input class="input" id="e_todo" data-edit="todo" data-id="${l.id}" value="${esc(l.todo || '')}" placeholder="e.g. Send brochure"></div>
         <div class="field"><label for="e_note">Note</label><textarea class="input" id="e_note" data-edit="note" data-id="${l.id}">${esc(l.note || '')}</textarea></div>
@@ -1582,7 +1644,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '48';
+const APP_VER = '49';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1597,6 +1659,9 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'bxFind': bxFind(t.dataset.v); break;
+    case 'bxBring': { const b = (S.sheet.rows || []).find(x => String(x.ID) === t.dataset.v); if (!b) break; t.disabled = true; t.textContent = 'Adding…';
+      bxBringIn(b).then(nid => { toast('Added from Bitrix with its comments'); openSheet('lead', nid); render(); }, e => toast('Could not add: ' + (e.message || e))); break; }
     case 'setCC': setCountryCode(id, t.dataset.v); break;
     case 'ccOpen': S.editOpen = true; renderSheet(); setTimeout(() => { const e = $('#e_phone'); if (e) e.scrollIntoView({block: 'center'}); }, 50); break;
     case 'unjunk': { const l = S.leads.get(id), back = l.prevStage && !['junkbx', 'junk'].includes(l.prevStage) ? l.prevStage : 'noanswer';
