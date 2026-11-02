@@ -15,6 +15,7 @@ async function main(){
   const card = (await root.collection('config').doc('card').get()).data();
   const attachments = [];
   if (card && card.data) { const m = String(card.data).match(/^data:([^;]+);base64,(.*)$/); if (m) attachments.push({filename: card.name || 'business-card.jpg', content: Buffer.from(m[2], 'base64'), contentType: m[1]}); }
+  if (!attachments.length) { try { const {readFile} = await import('node:fs/promises'); attachments.push({filename: 'Rabih El Turk - RTI Real Estate.jpg', content: await readFile(new URL('../../card.jpg', import.meta.url)), contentType: 'image/jpeg'}); } catch (e) {} }   /* the card in the app */
   const mail = nodemailer.createTransport({host: (process.env.ZOHO_SMTP_HOST || 'smtppro.zoho.com').trim(), port: 465, secure: true, auth: {user: ZOHO_EMAIL.trim(), pass: ZOHO_APP_PASSWORD.trim()}});
   let sent = 0, lastErr = '';
   for (const d of pending) {
