@@ -1105,6 +1105,34 @@ function viewLeadsShell(){
     <div class="chips scroll" id="stageChips"></div><div class="chips scroll" id="countryChips"></div>
     <div class="chips" id="sortChips"></div></div><div id="leadList" style="display:flex;flex-direction:column;gap:16px"></div>`;
 }
+/* Free AI ideas (Google Gemini free key): message drafts for a lead and outreach ideas – no Claude tokens */
+const gemKey = () => (aiProvider(aiKey()) === 'gemini' ? aiKey() : '') || ((S.priv || {}).geminiKey || '');
+async function gemini(prompt, json){
+  const key = gemKey(); if (!key) throw {code: 'nokey', message: 'Add a free Google Gemini key in Settings → AI picture reading (aistudio.google.com/apikey)'};
+  for (const model of ['gemini-flash-latest', 'gemini-2.5-flash']) {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {temperature: 0.8, ...(json ? {responseMimeType: 'application/json'} : {})}})}).catch(() => { throw {code: 'net', message: 'No connection to Gemini'}; });
+    if (r.status === 404) continue;
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 429) throw {code: 'busy', message: 'Gemini free limit reached for now – try again in a minute'};
+    if (!r.ok) throw {code: 'key', message: (j.error && j.error.message) || 'Gemini error ' + r.status};
+    const t = ((j.candidates || [])[0] || {}).content; const txt = t ? t.parts.map(x => x.text || '').join('') : '';
+    return json ? JSON.parse(txt) : txt;
+  }
+  throw {code: 'model', message: 'Gemini model not available'};
+}
+const AI_ME = () => `You help ${myName()}, a property consultant at RTI Real Estate in Dubai (off-plan property, international buyers). Style: warm, professional, short, trustworthy, never pushy, no false promises, no invented prices or projects unless given.`;
+function leadBrief(l){
+  const last = (l.history || []).filter(h => h.k !== 'created').slice(-6).map(h => new Date(h.t).toISOString().slice(0, 10) + ' ' + h.txt).join('\n');
+  const f = S.cfg.focus || {};
+  return `Client first name: ${(l.name || '').split(' ')[0]}\nCountry: ${l.country || '?'}\nLanguage to write in: ${({en: 'English', sv: 'Swedish', ar: 'Arabic', ru: 'Russian'})[l.lang] || 'English'}\nStage: ${STAGE[l.stage] || l.stage}\nUnanswered calls: ${l.noAnswer || 0}\nBudget/goal/type/timing: ${[l.budget, l.purpose, l.ptype, l.timeline].filter(Boolean).join(', ') || 'unknown'}\nInterested in: ${l.project || '-'}\nAbout them: ${l.about || '-'}\nThis week's project: ${f.project ? f.project + (f.area ? ' in ' + f.area : '') + (f.price ? ' from ' + f.price : '') + (f.plan ? ', plan ' + f.plan : '') : '-'}\nRecent history:\n${last || '-'}`;
+}
+async function aiDrafts(l, ch){
+  const kind = ch === 'email' ? 'email (no subject line, sign with ' + myName() + ')' : ch === 'sms' ? 'SMS (max 300 characters)' : 'WhatsApp message (max 600 characters, at most one emoji)';
+  const j = await gemini(`${AI_ME()}\n\n${leadBrief(l)}\n\nWrite 3 different ${kind} options to (re)start the conversation with this client, each with a different angle (e.g. value/offer, a simple question, a personal touch). Use the client's language. Reply only JSON: {"options":[{"angle":"","text":""}]}`, true);
+  return (j.options || []).slice(0, 3).map(o => ({angle: String(o.angle || '').slice(0, 40), text: String(o.text || '').trim()})).filter(o => o.text);
+}
+const customLink = (ch, l, txt) => ch === 'sms' ? smsLink(l, txt) : ch === 'email' ? mailLink(l, subjFor(l.lang || 'en', 'followup'), txt) : waLink(l, txt);
 /* SMS through textbee (textbee.dev): your Android phone sends the SMS, no app to open. Key and device ID are kept in your account.
    If the browser cannot reach textbee directly, the background service sends it within a few minutes. */
 const tbOn = () => !!(S.priv && S.priv.textbeeKey && S.priv.textbeeDevice) && S.cfg.smsVia !== 'app';
@@ -1263,6 +1291,13 @@ function viewAdd(){
 function viewMsgs(){
   const f = S.cfg.focus || {}; const L = S.tplLang;
   return `<div class="card form">
+    <h3>💡 Ask AI for ideas (free)</h3>
+    <p class="hint" style="margin:0">Free with a Google Gemini key – no Claude tokens. E.g. “New ways to reach clients who never answer”, “A message for Swedish investors about a beachfront project”, “How to get more referrals”.</p>
+    <textarea class="input" id="ai_q" placeholder="Ask anything about reaching or following up clients…">${esc(S.aiQ || '')}</textarea>
+    <button class="btn btn-primary" data-act="aiAsk">Get ideas</button>
+    ${S.aiAns ? `<div class="meetb" style="white-space:pre-wrap">${esc(S.aiAns)}</div>` : ''}
+  </div>
+  <div class="card form">
     <h3>This week's focus</h3>
     <p class="hint" style="margin:0">Your WhatsApp messages fill these in for you. Change them when you switch project.</p>
     ${HAS_VOICE ? `<div class="field"><span class="lbl">Speak comments in</span>${chipGroup('voice', VOICE_LANGS, S.cfg.voiceLang || 'en-US', 'setVoice')}</div>` : ''}
@@ -1590,6 +1625,9 @@ function renderSheet(){
       h += order.map(k => { const txt = tplText(L, k, ll); const subj = ch === 'email' ? fill(subjFor(L, k), ll) : '';
           return `<div class="tplwrap"><a class="tpl ${k === sug ? 'sug' : ''}" href="${esc(msgLink(ch, ll, k))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="${k}" dir="${L === 'ar' ? 'rtl' : 'ltr'}"><b>${esc(TPL_LABEL[k])}</b><p>${subj ? '<strong>' + esc(subj) + '</strong><br>' : ''}${esc(txt)}</p></a>
           <button class="copyb" data-act="copyTpl" data-v="${esc(txt)}">Copy text</button></div>`; }).join('')
+        + `<div class="card"><button class="btn btn-ghost" data-act="aiDraft" data-id="${l.id}" data-ch="${ch}">✨ Write 3 fresh ${ch === 'email' ? 'emails' : 'messages'} with AI (free)</button>
+          ${s.aiBusy ? '<div class="hint">Writing…</div>' : ''}${s.aiErr ? `<div class="banner">${esc(s.aiErr)}</div>` : ''}
+          ${(s.ai || []).map(o => `<div class="tplwrap"><a class="tpl" href="${esc(customLink(ch, l, o.text))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="own" data-ai="1"><b>✨ ${esc(o.angle || 'AI idea')}</b><p>${esc(o.text)}</p></a><button class="copyb" data-act="copyTpl" data-v="${esc(o.text)}">Copy text</button></div>`).join('')}</div>`
         + `<a class="btn btn-ghost" href="${esc(msgLink(ch, l, 'own'))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="own">Write my own message</a>`;
       if (ch === 'sms' || (ch === 'email' && mailMode() === 'app')) h += `<p class="hint" style="margin:0">If nothing opens when you tap, use Copy text and paste the message into your ${ch === 'sms' ? 'Messages' : 'email'} app.</p>`;
       if (ch === 'email') h += `<p class="hint" style="margin:0">Opens in ${({zoho: 'Zoho Mail', gmail: 'Gmail', app: 'your mail app'})[mailMode()]}. Change it in Messages → Email.</p>`;
@@ -1719,7 +1757,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '58';
+const APP_VER = '59';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1734,6 +1772,12 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'aiDraft': { const l = S.leads.get(id), sh = S.sheet; sh.aiBusy = true; sh.aiErr = ''; renderSheet();
+      aiDrafts({...l, lang: sh.lang || l.lang}, t.dataset.ch).then(ai => { if (S.sheet === sh) { sh.ai = ai; sh.aiBusy = false; renderSheet(); } }, e => { if (S.sheet === sh) { sh.aiBusy = false; sh.aiErr = e.message || e.code; renderSheet(); } }); break; }
+    case 'aiAsk': { const q = ($('#ai_q') || {}).value || ''; if (!q.trim()) { toast('Write your question'); break; } S.aiAns = 'Thinking…'; renderView();
+      const leads = [...S.leads.values()], cnt = k => leads.filter(l => l.stage === k).length;
+      gemini(`${AI_ME()}\nTheir pipeline: ${cnt('new') + cnt('noanswer')} new/no answer, ${cnt('talking')} contacted, ${cnt('hot') + cnt('nego')} hot, ${cnt('pool')} pool, ${cnt('later')} buy later. Countries: ${[...new Set(leads.map(l => l.country).filter(Boolean))].slice(0, 12).join(', ')}.\nThey use WhatsApp, calls, SMS and email; tools: Lead Desk + Bitrix.\n\nQuestion: ${q}\n\nAnswer with practical, concrete ideas (short bullet points, max 220 words). Include ready-to-use message lines where helpful.`)
+        .then(a => { S.aiAns = a; renderView(); }, e => { S.aiAns = '⚠ ' + (e.message || e.code); renderView(); }); break; }
     case 'setSmsVia': S.cfg.smsVia = t.dataset.v; saveCfg(); renderView(); break;
     case 'tbTest': tbSend(S.cfg.myPhone || '971585519020', 'Lead Desk test SMS via textbee ✓').then(h => toast(h === 'sent' ? 'Test SMS sent ✓ – check your phone' : 'Test SMS queued – the background sends it within minutes'), e => toast('textbee: ' + (e.message || e.code), 9000)); break;
     case 'openJunk': S.q = ''; S.stageF = 'junkbx'; S.countryF = ''; setTab('leads'); break;
@@ -1966,6 +2010,7 @@ document.addEventListener('input', e => {
   if (t.id === 'paste_box') { S.pasteText = t.value; return; }
   if (t.id === 'bx_hook') { try { localStorage.setItem('bxHook', t.value.trim()); } catch (e) {} return; }
   if (t.id === 'zoho_host') { try { localStorage.setItem('zohoHost', t.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') || 'mail.zoho.com'); } catch (e) {} return; }
+  if (t.id === 'ai_q') { S.aiQ = t.value; return; }
   if (t.id === 'tb_key' || t.id === 'tb_dev') { write('config/private', {[t.id === 'tb_key' ? 'textbeeKey' : 'textbeeDevice']: t.value.trim()}, 'merge'); S.priv = {...(S.priv || {}), [t.id === 'tb_key' ? 'textbeeKey' : 'textbeeDevice']: t.value.trim()}; toast('Saved'); renderView(); return; }
   if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {} if (aiProvider(k) === 'gemini') write('config/private', {geminiKey: k}, 'merge');
     const st = $('#ai_state'); if (st) st.textContent = aiProvider(k) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(k) === 'claude' ? '✓ Claude key saved – photos are read with AI' : k ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone.'; return; }
