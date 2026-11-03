@@ -469,8 +469,10 @@ function fill(txt, l){
   const map = {greet: (GREET[l.lang] || GREET.en)[hh < 12 ? 0 : hh < 17 ? 1 : 2], cardlink: S.cfg.cardLink === false ? '' : '\n\n' + (CARD_LBL[l.lang] || CARD_LBL.en) + CARD_URL, card: CARD_LINE[l.lang] || CARD_LINE.en,   /* your uploaded card, or the RTI card in the app */ link: l.meetLink || '',
     projectline: f.project ? '\n\n' + P[0] + f.project + (f.area ? P[1] + f.area : '') + (f.price ? P[2] + f.price : '') + '.' : '',
     linkline: l.meetLink ? '\n\n' + (LINK_LBL[l.lang] || LINK_LBL.en) + l.meetLink : '', name:first, me:myName(), project:f.project || l.project || '', area:f.area || '', price:f.price || '', plan:f.plan || '', handover:f.handover || '', meeting:mt};
-  return txt.replace(/\{(\w+)\}/g, (m, k) => k in map ? map[k] : m).replace(/\s+([,.!?،])/g, '$1');
+  return String(txt || '').replace(/\{(\w+)\}/g, (m, k) => k in map ? map[k] : m).replace(/\s+([,.!?،])/g, '$1');
 }
+/* Email subject for any message (messages made for WhatsApp get a fitting general subject) */
+const subjFor = (L, k) => (DEF_SUBJ[L] || DEF_SUBJ.en)[k] || DEF_SUBJ.en[k] || ({noanswer_known: 'noanswer', noanswer_late: 'noanswer', monthly_wa: 'monthly_email'}[k] && (DEF_SUBJ[L] || DEF_SUBJ.en)[{noanswer_known: 'noanswer', noanswer_late: 'noanswer', monthly_wa: 'monthly_email'}[k]]) || (DEF_SUBJ[L] || DEF_SUBJ.en).followup;
 const DEF_SUBJ = {
   en: {lasttry:'Staying in touch – {me}, RTI Real Estate',reachout:'Your Dubai property search – {me}, RTI Real Estate',first:'Dubai property options for you', noanswer:'I tried to call you',noanswer_late:'I will call you tomorrow',na_email:'Your Dubai property inquiry – {me}, RTI Real Estate',intro_email:'Your Dubai property inquiry – {me}, RTI Real Estate',followup_email:'Following up – {me}, RTI Real Estate',monthly_email:'Dubai property update – {me}, RTI Real Estate',invite_email:'Meeting confirmed: {meeting}', declined:'A better time to talk?', followup:'Following up', offer:'{project} – new opportunity in Dubai', meeting_confirm:'Meeting confirmed: {meeting}', meeting_remind:'Reminder: our meeting {meeting}', after_meeting:'Thank you for today', reengage:'New opportunities in Dubai'},
   sv: {lasttry:'Vi håller kontakten – {me}, RTI Real Estate',reachout:'Din bostadssökning i Dubai – {me}, RTI Real Estate',first:'Fastighetsalternativ i Dubai för dig', noanswer:'Jag försökte ringa dig',noanswer_late:'Jag ringer dig i morgon',na_email:'Din förfrågan om fastigheter i Dubai – {me}, RTI Real Estate',intro_email:'Din förfrågan om fastigheter i Dubai – {me}, RTI Real Estate',followup_email:'Uppföljning – {me}, RTI Real Estate',monthly_email:'Uppdatering om fastigheter i Dubai – {me}, RTI Real Estate',invite_email:'Möte bekräftat: {meeting}', declined:'När passar det att prata?', followup:'Uppföljning', offer:'{project} – ny möjlighet i Dubai', meeting_confirm:'Möte bekräftat: {meeting}', meeting_remind:'Påminnelse: vårt möte {meeting}', after_meeting:'Tack för idag', reengage:'Nya möjligheter i Dubai'},
@@ -521,7 +523,7 @@ function msgLink(ch, l, k){
   if (k === 'own') return ch === 'sms' ? smsLink(l) : ch === 'email' ? mailLink(l, '', mailSig() ? '\n\n' + mailSig() : '') : waLink(l);
   const txt = tplText(L, k, l);
   if (ch === 'sms') return smsLink(l, txt);
-  if (ch === 'email') return mailLink(l, fill(DEF_SUBJ[L][k], l), txt + (mailSig() ? '\n\n' + mailSig() : ''));
+  if (ch === 'email') return mailLink(l, fill(subjFor(L, k), l), txt + (mailSig() ? '\n\n' + mailSig() : ''));
   return waLink(l, txt);
 }
 const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
@@ -1554,7 +1556,7 @@ function renderSheet(){
     if (ch === 'email' && !l.email) {
       h += `<div class="card"><div class="field"><label for="e_email2">No email saved for ${esc(l.name)}. Add it here:</label><input class="input" id="e_email2" type="email" inputmode="email" data-edit="email" data-id="${l.id}" placeholder="name@example.com" autocomplete="off"></div><button class="btn btn-primary" data-act="noop">Save email</button></div>`;
     } else {
-      h += order.map(k => { const txt = tplText(L, k, ll); const subj = ch === 'email' ? fill(DEF_SUBJ[L][k], ll) : '';
+      h += order.map(k => { const txt = tplText(L, k, ll); const subj = ch === 'email' ? fill(subjFor(L, k), ll) : '';
           return `<div class="tplwrap"><a class="tpl ${k === sug ? 'sug' : ''}" href="${esc(msgLink(ch, ll, k))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="${k}" dir="${L === 'ar' ? 'rtl' : 'ltr'}"><b>${esc(TPL_LABEL[k])}</b><p>${subj ? '<strong>' + esc(subj) + '</strong><br>' : ''}${esc(txt)}</p></a>
           <button class="copyb" data-act="copyTpl" data-v="${esc(txt)}">Copy text</button></div>`; }).join('')
         + `<a class="btn btn-ghost" href="${esc(msgLink(ch, l, 'own'))}" ${tgt} data-act="waSent" data-ch="${ch}" data-id="${l.id}" data-k="own">Write my own message</a>`;
@@ -1621,7 +1623,7 @@ function queueNaMail(l, test){
 function queueMail(l, k, extra = {}){
   const L = l.lang || 'en', sig = mailSig(), {subjectPrefix, ...rest} = extra;
   const text = tplText(L, k, l).replace(/\n{3,}/g, '\n\n') + (sig ? '\n' + sig : '');
-  write('outbox/m' + Date.now() + (l.id || 'test') + k.slice(0, 3), {to: l.email, subject: (subjectPrefix || '') + fill(DEF_SUBJ[L][k], l), text, leadId: l.id || null, kind: k, status: 'pending', createdAt: Date.now(), ...rest}, 'set');
+  write('outbox/m' + Date.now() + (l.id || 'test') + k.slice(0, 3), {to: l.email, subject: (subjectPrefix || '') + fill(subjFor(L, k), l), text, leadId: l.id || null, kind: k, status: 'pending', createdAt: Date.now(), ...rest}, 'set');
 }
 const autoOn = k => S.cfg[k] !== false;   /* follow-up, monthly and invite emails are on unless turned off */
 /* Calendar invite (.ics) so the meeting lands in the client's calendar */
@@ -1686,7 +1688,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '53';
+const APP_VER = '54';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
