@@ -1236,7 +1236,7 @@ function renderLeadList(){
   const cc = {}; list.forEach(l => { const k = l.country || 'Other'; cc[k] = (cc[k] || 0) + 1; });
   const flagOf = {}; all.forEach(l => { flagOf[l.country || 'Other'] = l.flag || '🌐'; });
   $('#countryChips').innerHTML = `<button class="chip ${!S.countryF ? 'on' : ''}" data-act="countryF" data-k="">All countries</button>` + Object.keys(cc).sort((a, b) => cc[b] - cc[a]).map(k => `<button class="chip ${S.countryF === k ? 'on' : ''}" data-act="countryF" data-k="${esc(k)}">${esc(flagOf[k])} ${esc(k)}<small>${cc[k]}</small></button>`).join('');
-  $('#sortChips').innerHTML = `<span class="hint" style="align-self:center">Sort:</span>` + [['time','By call time'],['country','By country'],['hot','Hot first']].map(([k, t]) => `<button class="chip ${S.sortBy === k ? 'on' : ''}" data-act="sortBy" data-k="${k}">${t}</button>`).join('');
+  $('#sortChips').innerHTML = `<span class="hint" style="align-self:center">Sort:</span>` + [['time','By call time'],['country','By country'],['hot','Hot first'],['last','Longest without contact']].map(([k, t]) => `<button class="chip ${S.sortBy === k ? 'on' : ''}" data-act="sortBy" data-k="${k}">${t}</button>`).join('');
   if (S.countryF) list = list.filter(l => (l.country || 'Other') === S.countryF);
   const sortT = (a, b) => (winOpen(b) - winOpen(a)) || (callWindows(a)[0][0] - callWindows(b)[0][0]) || (isHot(b) - isHot(a)) || ((a.nextAt || 9e15) - (b.nextAt || 9e15));
   if (!S.ready) { box.innerHTML = '<div class="empty">Loading your leads…</div>'; return; }
@@ -1250,7 +1250,14 @@ function renderLeadList(){
   const groups = new Map();
   if (S.sortBy === 'country') { list.sort((a, b) => (a.country || 'Other').localeCompare(b.country || 'Other') || sortT(a, b)); list.forEach(l => { const k = (l.flag || '🌐') + ' ' + (l.country || 'Other') + ' · call ' + winText(l); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }); }
   else if (S.sortBy === 'time') { list.sort(sortT); list.forEach(l => { const k = winOpen(l) ? 'Call now – in their window' : 'Window ' + winText(l) + ' Dubai'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }); }
+  else if (S.sortBy === 'last') {                /* oldest last activity first, grouped by how long ago */
+    const age = l => l.lastAt ? Date.now() - l.lastAt : Infinity;
+    const bucket = l => { const a = age(l); return a === Infinity ? 'Never contacted' : a > 90*D ? 'Over 3 months ago' : a > 30*D ? '1–3 months ago' : a > 14*D ? '2–4 weeks ago' : a > 7*D ? '1–2 weeks ago' : 'This week'; };
+    list.sort((a, b) => age(b) - age(a) || (isHot(b) - isHot(a)));
+    list.forEach(l => { const k = 'Last contact: ' + bucket(l); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); });
+  }
   else { list.sort((a, b) => (isHot(b) - isHot(a)) || ((a.nextAt || 9e15) - (b.nextAt || 9e15))); groups.set('', list); }
+  S.listIds = [...groups.values()].flat().map(l => l.id);      /* "Start calling these" follows the order on screen */
   box.innerHTML = `<button class="btn btn-primary btn-big" data-act="startList">Start calling these ${list.length} lead${list.length > 1 ? 's' : ''}</button>` + [...groups].map(([k, arr]) => `<section>${k ? `<h2 class="sec"><span class="dot"></span>${esc(k)} <small>${arr.length}</small></h2>` : ''}<div class="list">${arr.map(row).join('')}</div></section>`).join('');
 }
 function chipGroup(group, opts, sel, act = 'chip', extra = ''){
@@ -1757,7 +1764,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '59';
+const APP_VER = '60';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
