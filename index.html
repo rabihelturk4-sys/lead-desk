@@ -593,7 +593,11 @@ async function bxRun(){
   while (bxQ.length) {
     const job = bxQ.find(j => !bxHeld(j)); if (!job) break;
     try {
-      if (job.method === 'ld.junk') { await bxJunk(job.params); bxDrop(job); bxSave(); S.bxErr = ''; continue; }
+      if (job.method === 'ld.junk') {
+        try { await bxJunk(job.params); } catch (e) { if (e.code === 'net' || /^http5/.test(e.code)) throw e; bxDrop(job); bxSave(); junkFailed(job.params.lead || job.lead, e.message || e.code); continue; }
+        bxDrop(job); bxSave(); S.bxErr = ''; const lid = job.params.lead || job.lead;
+        if (lid && S.leads.has(lid)) { S.leads.delete(lid); write('leads/' + lid, null, 'del'); render(); }
+        toast('Junked in Bitrix ✓'); continue; }
       if (job.lead && !job.params.id && !(job.params.fields && job.params.fields.ENTITY_ID)) {
         const l = S.leads.get(job.lead); const id = l ? await bxEnsure(l) : '';
         if (!id) throw {code: 'noid', message: 'The lead could not be found or created in Bitrix.'};
@@ -687,18 +691,39 @@ async function bxJunk(p){
   let id = p.id;
   const found = async (type, v) => { if (!v) return ''; const r = await bxCall('crm.duplicate.findbycomm', {entity_type: 'LEAD', type, values: [v]}); return (r && r.LEAD && r.LEAD[0]) ? String(r.LEAD[0]) : ''; };
   if (!id) id = await found('PHONE', p.phone ? '+' + digits(p.phone) : '') || await found('EMAIL', p.email);
-  if (!id) return;
+  if (!id) throw {code: 'noid', message: 'This lead was not found in Bitrix'};
   await bxCall('crm.lead.update', {id, fields: {STATUS_ID: p.status}});
+  const cur = await bxCall('crm.lead.get', {id});                                 /* check Bitrix really moved it */
+  if (cur && cur.STATUS_ID !== p.status) throw {code: 'notmoved', message: 'Bitrix kept the lead in its stage (a required field may be missing)'};
 }
+/* The Bitrix junk reason: the one you picked, else a status called "Wrong details", else Bitrix's own JUNK */
+async function junkStatus(){
+  const map = S.cfg.bxMap || {}; if (map.junk) return map.junk;
+  const list = S.bxStatuses || await bxCall('crm.status.list', {order: {SORT: 'ASC'}, filter: {ENTITY_ID: 'STATUS'}}) || [];
+  const hit = list.find(x => /wrong/i.test(x.NAME)) || list.find(x => x.STATUS_ID === 'JUNK') || list.find(x => /junk/i.test(x.NAME));
+  if (hit) { S.cfg.bxMap = {...map, junk: hit.STATUS_ID}; S.cfg.bxJunkName = hit.NAME; saveCfg(); return hit.STATUS_ID; }
+  return '';
+}
+/* Junk: the lead leaves your lists at once, but is only deleted from Lead Desk after Bitrix has really moved it to Junk.
+   If Bitrix refuses, the lead comes back with the reason, so nothing is lost on either side. */
 function doJunk(id){
   const l = S.leads.get(id); if (!l) return;
-  const map = S.cfg.bxMap || {}, st = (S.bxStatuses || []).find(x => x.STATUS_ID === map.junk);
-  const reason = st ? st.NAME : (S.cfg.bxJunkName || 'Wrong details');
-  if (!confirm('Junk ' + (l.name || 'this lead') + '?\n\nIt is deleted from Lead Desk' + (bxOn() && map.junk ? ' and set to Junk – ' + reason + ' in Bitrix' : '') + '.')) return false;
-  if (bxOn() && map.junk) bxQueue(l, 'ld.junk', {id: bxId(l) || undefined, phone: l.phone || '', email: l.email || '', status: map.junk, reason}, 'junk');
-  S.leads.delete(id); write('leads/' + id, null, 'del');
+  const linked = bxOn() && bxValid(bxHook());
+  const reason = S.cfg.bxJunkName || 'Wrong details';
+  if (!confirm('Junk ' + (l.name || 'this lead') + '?\n\n' + (linked ? 'It is set to Junk – ' + reason + ' in Bitrix, then deleted from Lead Desk.' : 'It is deleted from Lead Desk. Bitrix is NOT updated on this device (Bitrix link or automatic updates are off).'))) return false;
   if (S.lastCall && S.lastCall.id === id) { S.lastCall = null; S.afterCall = null; }
+  if (!linked) { S.leads.delete(id); write('leads/' + id, null, 'del'); return true; }
+  patchLead(id, {stage: 'junk', junkFrom: l.stage, junkErr: null, hot: false, nextAt: null, fresh: false}, null, {quiet: true});
+  junkStatus().then(st => {
+    if (!st) throw {message: 'No junk stage found in Bitrix – pick it in Settings → Bitrix24 (Junk line)'};
+    bxQueue(S.leads.get(id), 'ld.junk', {id: bxId(l) || undefined, phone: l.phone || '', email: l.email || '', status: st, reason: S.cfg.bxJunkName || reason, lead: id}, 'junk');
+  }).catch(e => junkFailed(id, e.message || e.code));
   return true;
+}
+function junkFailed(id, why){
+  const l = S.leads.get(id); if (!l) return;
+  patchLead(id, {stage: l.junkFrom || 'noanswer', junkErr: why, nextAt: nextWindowAt(l)}, null, {quiet: true});
+  toast('Not junked in Bitrix: ' + why + ' – the lead is back', 9000); render();
 }
 /* A note goes where you keep your notes in Bitrix: at the top of the lead's Comment field (newest first),
    and also on the lead's timeline */
@@ -1134,10 +1159,10 @@ function renderLeadList(){
   const box = $('#leadList'); if (!box) return;
   const q = S.q.trim(), scores = new Map();
   const all = [...S.leads.values()].filter(l => { if (!q) return true; const sc = searchScore(l, q); if (sc) scores.set(l.id, sc); return sc > 0; });
-  const cnt = k => all.filter(l => k === 'open' ? isOpen(l) : k === 'all' ? (q || l.stage !== 'junkbx') : k === 'hotf' ? isHot(l) && isOpen(l) : l.stage === k).length;
+  const cnt = k => all.filter(l => k === 'open' ? isOpen(l) : k === 'all' ? (q || !['junkbx', 'junk'].includes(l.stage)) : k === 'hotf' ? isHot(l) && isOpen(l) : l.stage === k).length;
   const filters = [['open','Active'],['hotf','Hot'],...STAGES,['all','All'],['junkbx','🗑 Junked in Bitrix']];      /* junked leads only under their own chip */
   $('#stageChips').innerHTML = filters.map(([k, t]) => `<button class="chip ${S.stageF === k ? 'on' : ''}" data-act="stageF" data-k="${k}">${esc(t)}<small>${cnt(k)}</small></button>`).join('');
-  let list = all.filter(l => S.stageF === 'open' ? isOpen(l) : S.stageF === 'all' ? (q || l.stage !== 'junkbx') : S.stageF === 'hotf' ? isHot(l) && isOpen(l) : l.stage === S.stageF);
+  let list = all.filter(l => S.stageF === 'open' ? isOpen(l) : S.stageF === 'all' ? (q || !['junkbx', 'junk'].includes(l.stage)) : S.stageF === 'hotf' ? isHot(l) && isOpen(l) : l.stage === S.stageF);
   const cc = {}; list.forEach(l => { const k = l.country || 'Other'; cc[k] = (cc[k] || 0) + 1; });
   const flagOf = {}; all.forEach(l => { flagOf[l.country || 'Other'] = l.flag || '🌐'; });
   $('#countryChips').innerHTML = `<button class="chip ${!S.countryF ? 'on' : ''}" data-act="countryF" data-k="">All countries</button>` + Object.keys(cc).sort((a, b) => cc[b] - cc[a]).map(k => `<button class="chip ${S.countryF === k ? 'on' : ''}" data-act="countryF" data-k="${esc(k)}">${esc(flagOf[k])} ${esc(k)}<small>${cc[k]}</small></button>`).join('');
@@ -1299,6 +1324,7 @@ function briefing(l){
   const noDate = ['later','pool'].includes(l.stage) && (l.needDate || !l.nextAt);
   return `<div class="brief">
     ${noCountry(l) ? `<div class="banner">The number ${esc(l.phone)} has no country code – calls and WhatsApp may fail. <button class="btn btn-ghost" data-act="ccOpen" data-id="${l.id}">Fix the country code</button></div>` : ''}
+    ${l.junkErr ? `<div class="banner">Junk did not reach Bitrix: ${esc(l.junkErr)}. <button class="btn btn-ghost" data-act="moveTo" data-k="junk" data-id="${l.id}">Try Junk again</button></div>` : ''}
     ${l.stage === 'junkbx' ? `<div class="banner">Junked in Bitrix – not on your calling lists. <button class="btn btn-ghost" data-act="unjunk" data-id="${l.id}">Bring back to ${esc(STAGE[l.prevStage && l.prevStage !== 'junkbx' ? l.prevStage : 'noanswer'])}</button></div>` : ''}
     ${l.unsub ? `<div class="banner">Asked to stop updates – no automatic emails or monthly messages are sent. <button class="btn btn-ghost" data-act="unsubToggle" data-id="${l.id}">Allow again</button></div>` : ''}
     ${l.bxReqPending && bxOn() ? `<div class="banner">Bitrix is not moved to ${esc(STAGE[l.bxReqPending])} yet – <button class="btn btn-ghost" data-act="reqOpen" data-id="${l.id}" data-st="${l.bxReqPending}">Answer ${reqMissing(l).length || ''} Bitrix questions</button></div>` : ''}
@@ -1644,7 +1670,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '49';
+const APP_VER = '50';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
