@@ -839,7 +839,7 @@ function bxAfterPatch(l, p, hist, before){
     S.leads.set(l.id, {...S.leads.get(l.id), bxReqPending: p.stage}); write('leads/' + l.id, {bxReqPending: p.stage});
     setTimeout(() => openSheet('reqfields', l.id, {stage: p.stage}), 350);
   } else if (moved) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage], ...bxDateFields(p), ...(l.bxReq || {})}}, 'stage ' + STAGE[p.stage]);
-  if (!hist || BX_SKIP.has(hist.k) || !hist.txt) return;
+  if (!hist || BX_SKIP.has(hist.k) || !hist.txt || hist.nobx) return;      /* "WhatsApp sent: …" stays in Lead Desk only */
   const auto = BX_AUTO.has(hist.k);
   if (auto && S.manualAt && S.manualAt[l.id] && Date.now() - S.manualAt[l.id] < 10*60e3) return;   /* you already wrote the comment */
   if (!auto) { S.manualAt = {...(S.manualAt || {}), [l.id]: Date.now()}; const before = bxQ.length; bxQ = bxQ.filter(j => !(j.auto && j.lead === l.id && j.method === 'ld.comment')); if (bxQ.length !== before) bxSave(); }
@@ -1688,7 +1688,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '54';
+const APP_VER = '55';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1731,7 +1731,7 @@ document.addEventListener('click', e => {
     case 'laterPick': { const d = new Date(); d.setDate(d.getDate() + +t.dataset.v); d.setHours(10, 0, 0, 0); doLater(id, d.getTime(), t.dataset.st); break; }
     case 'laterSave': { const v = ($('#later_dt') || {}).value; if (!v) { toast('Pick a date'); break; } const d = new Date(v + 'T10:00'); if (d.getTime() < Date.now()) { toast('Pick a date in the future'); break; } doLater(id, d.getTime(), t.dataset.st); break; }
     case 'startWaRun': startWaRun(); break;
-    case 'waRunSend': patchLead(id, monthlyMark(S.leads.get(id)), {k: 'wa', txt: 'Monthly WhatsApp update sent'}, {quiet: true}); S.waRun && S.waRun.sent++; later(waRunNext); break;
+    case 'waRunSend': patchLead(id, monthlyMark(S.leads.get(id)), {k: 'wa', txt: 'Monthly WhatsApp update sent', nobx: true}, {quiet: true}); S.waRun && S.waRun.sent++; later(waRunNext); break;
     case 'waRunSkip': waRunNext(); break;
     case 'waRunStop': patchLead(id, {waUnsub: true, unsub: true}, {k: 'note', txt: 'Asked for no more updates (WhatsApp and email)'}, {quiet: true}); waRunNext(); break;
     case 'unsubToggle': { const l = S.leads.get(id); patchLead(id, {unsub: !l.unsub, waUnsub: !l.unsub}, {k: 'note', txt: l.unsub ? 'Updates allowed again' : 'No more automatic emails or monthly updates'}, {quiet: true}); render(); break; }
@@ -1806,7 +1806,7 @@ document.addEventListener('click', e => {
       const p = {lastAt: Date.now(), nextAt: (!l.nextAt || l.nextAt <= Date.now() + H) ? at10(2) : l.nextAt};
       if (k === 'first' && l.stage === 'new') p.stage = 'noanswer';
       const ch = t.dataset.ch || 'wa';
-      patchLead(id, p, {k: ch, txt: CH[ch] + ' sent: ' + (k === 'own' ? 'own message' : TPL_LABEL[k])}, {quiet: true});
+      patchLead(id, p, {k: ch, txt: CH[ch] + ' sent: ' + (k === 'own' ? 'own message' : TPL_LABEL[k]), nobx: true}, {quiet: true});
       later(() => S.focus ? advance('Message logged') : (closeSheet(), toast('Message logged · follow-up set'), render())); break; }
     case 'talkSheet': openSheet('talk', id); break;
     case 'meetSheet': openSheet('meet', id); break;
@@ -1834,7 +1834,7 @@ document.addEventListener('click', e => {
       patchLead(id, {stage:'meeting', hot:true, meetingAt: ms, meetingKind: kind, meetLink: link, ...(em && !ld.email ? {email: em} : {}), lastAt: Date.now(), nextAt: rem, noAnswer: 0}, {k:'meeting', txt: `Meeting booked: ${kind}, ${when(ms)}`}, {quiet: true});
       { const l = S.leads.get(id); if (l.email && autoOn('autoInvite')) { queueMail(l, 'invite_email', {ics: meetingIcs(l)}); toast('Meeting saved · calendar invite emailed to ' + l.email); } }
       S.sheet.saved = true; renderSheet(); render(); break; }
-    case 'waConfirm': { const ch = t.dataset.ch || 'wa'; patchLead(id, {}, {k: ch, txt: CH[ch] + ' sent: meeting ' + (S.leads.get(id).meetLink ? 'link' : 'confirmation')}, {quiet: true}); later(() => toast('Logged')); break; }
+    case 'waConfirm': { const ch = t.dataset.ch || 'wa'; patchLead(id, {}, {k: ch, txt: CH[ch] + ' sent: meeting ' + (S.leads.get(id).meetLink ? 'link' : 'confirmation'), nobx: true}, {quiet: true}); later(() => toast('Logged')); break; }
     case 'nextAfterMeet': advance('Meeting saved'); break;
     case 'setField': { const l = S.leads.get(id), g = t.dataset.g, v = t.dataset.v;
       if (g === 'stage' && (v === 'later' || v === 'pool')) { openSheet('laterdate', id, {stage: v}); break; }
