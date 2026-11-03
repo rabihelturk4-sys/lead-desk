@@ -1018,7 +1018,9 @@ function coachCard(){
   const c = S.coach, sug = suggestions(), today = new Date(Date.now() + 4*H).toISOString().slice(0, 10);
   const plan = c && c.day === today && c.top ? c : null;
   if (!plan && !sug.length && !(c && c.weekly)) return '';
-  const rows = plan ? plan.top.filter(t => S.leads.has(t.id)).map(t => `<button class="crow" data-act="open" data-id="${esc(t.id)}"><b>${esc(t.name)}</b><span>${esc(t.why)}</span></button>`).join('') : '';
+  /* a lead drops off the plan once you have called or contacted it, or moved it out of the active stages */
+  const left = plan ? plan.top.filter(t => { const l = S.leads.get(t.id); return l && !((l.lastAt || 0) > (plan.at || 0)) && !((l.stageAt || 0) > (plan.at || 0) && !isOpen(l)) && !['junk', 'junkbx'].includes(l.stage); }) : [];
+  const rows = plan ? (left.length ? '' : `<div class="ctip">✓ All done from today's plan – nice work.</div>`) + left.map(t => `<button class="crow" data-act="open" data-id="${esc(t.id)}"><b>${esc(t.name)}</b><span>${esc(t.why)}</span></button>`).join('') : '';
   const wk = c && c.weekly && Date.now() - (c.at || 0) < 7*D && !S.cfg.hideWeek ? `<details class="cweek"><summary>This week's review</summary><p>${esc(c.weekly.facts)}</p><ul>${c.weekly.ideas.map(i => `<li>${esc(i)}</li>`).join('')}</ul></details>` : '';
   return `<section class="coach"><div class="clbl">Your coach${plan && plan.ai ? ' · AI' : ''}</div>
     ${plan ? `<div class="cgreet">${esc(plan.greeting)}</div>${rows}<div class="ctip">💡 ${esc(plan.tip)}</div>` : ''}
@@ -1679,7 +1681,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '51';
+const APP_VER = '52';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
