@@ -2,7 +2,7 @@
    with your business card (config/card) attached. Runs with the Bitrix check every few minutes. */
 async function main(){
   const {FIREBASE_SERVICE_ACCOUNT, ZOHO_EMAIL, ZOHO_APP_PASSWORD} = process.env;
-  if (!FIREBASE_SERVICE_ACCOUNT || !ZOHO_EMAIL || !ZOHO_APP_PASSWORD) { console.log('::notice::Secrets ZOHO_EMAIL and ZOHO_APP_PASSWORD are not set yet – no emails sent.'); return; }
+  if (!FIREBASE_SERVICE_ACCOUNT) return;
   const admin = (await import('firebase-admin')).default, nodemailer = (await import('nodemailer')).default;
   admin.initializeApp({credential: admin.credential.cert(JSON.parse(FIREBASE_SERVICE_ACCOUNT))});
   const fs = admin.firestore();
@@ -11,7 +11,18 @@ async function main(){
   const root = fs.collection('users').doc(uid), syncRef = root.collection('config').doc('sync');
   const pending = (await root.collection('outbox').where('status', '==', 'pending').get()).docs;
   if (!pending.some(d => !(d.data().sendAt > Date.now()))) { console.log('::notice::No emails due.'); return; }
-  const cfg = (await root.collection('config').doc('main').get()).data() || {};
+  const cfg = (await root.collection('config').doc('main').get()).data() || {}, priv = (await root.collection('config').doc('private').get()).data() || {};
+  /* SMS the browser could not send directly: send them through textbee (your Android phone) */
+  for (const d of pending.filter(d => d.data().kind === 'sms')) {
+    const m = d.data();
+    if (!priv.textbeeKey || !priv.textbeeDevice) { await d.ref.update({status: 'error', error: 'textbee key or device missing'}); continue; }
+    try {
+      const r = await fetch(`https://api.textbee.dev/api/v1/gateway/devices/${encodeURIComponent(priv.textbeeDevice)}/send-sms`, {method: 'POST', headers: {'Content-Type': 'application/json', 'x-api-key': priv.textbeeKey}, body: JSON.stringify({recipients: [m.to], message: m.text})});
+      if (!r.ok) throw new Error('textbee ' + r.status + ' ' + (await r.text()).slice(0, 120));
+      await d.ref.update({status: 'sent', sentAt: Date.now()});
+    } catch (e) { await d.ref.update({status: (m.tries || 0) >= 2 ? 'error' : 'pending', tries: (m.tries || 0) + 1, error: String(e.message || e)}); }
+  }
+  if (!ZOHO_EMAIL || !ZOHO_APP_PASSWORD) { console.log('::notice::Secrets ZOHO_EMAIL and ZOHO_APP_PASSWORD are not set yet – no emails sent.'); return; }
   const card = (await root.collection('config').doc('card').get()).data();
   const attachments = [];
   if (card && card.data) { const m = String(card.data).match(/^data:([^;]+);base64,(.*)$/); if (m) attachments.push({filename: card.name || 'business-card.jpg', content: Buffer.from(m[2], 'base64'), contentType: m[1]}); }
@@ -19,7 +30,7 @@ async function main(){
   const mail = nodemailer.createTransport({host: (process.env.ZOHO_SMTP_HOST || 'smtppro.zoho.com').trim(), port: 465, secure: true, auth: {user: ZOHO_EMAIL.trim(), pass: ZOHO_APP_PASSWORD.trim()}});
   let sent = 0, lastErr = '';
   for (const d of pending) {
-    const m = d.data();
+    const m = d.data(); if (m.kind === 'sms') continue;
     if (m.sendAt && m.sendAt > Date.now()) continue;                                   /* scheduled for later */
     if (m.leadId && m.kind !== 'invite_email') {
       const l = (await root.collection('leads').doc(m.leadId).get()).data();
