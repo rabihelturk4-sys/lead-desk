@@ -965,7 +965,7 @@ function render(){
    lead just called are kept on this device and reopened when the app is back on screen. */
 function saveSession(){
   if (!S.ready) return;
-  try { localStorage.setItem('ld_session', JSON.stringify({focus: S.focus, open: S.sheet && S.sheet.type === 'lead' ? S.sheet.id : null, call: S.lastCall || null})); } catch (e) {}
+  try { localStorage.setItem('ld_session', JSON.stringify({focus: S.focus, open: S.sheet && S.sheet.id && S.leads.has(S.sheet.id) ? S.sheet.id : null, call: S.lastCall || null})); } catch (e) {}
 }
 let restored = false;
 function restoreSession(){
@@ -1250,7 +1250,8 @@ function renderLeadList(){
   const groups = new Map();
   if (S.sortBy === 'country') { list.sort((a, b) => (a.country || 'Other').localeCompare(b.country || 'Other') || sortT(a, b)); list.forEach(l => { const k = (l.flag || '🌐') + ' ' + (l.country || 'Other') + ' · call ' + winText(l); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }); }
   else if (S.sortBy === 'time') { list.sort(sortT); list.forEach(l => { const k = winOpen(l) ? 'Call now – in their window' : 'Window ' + winText(l) + ' Dubai'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }); }
-  else if (S.sortBy === 'last') {                /* oldest last activity first, grouped by how long ago */
+  else if (S.sortBy === 'last') {                /* oldest last activity first, grouped by how long ago; Buy later waits for its own date */
+    if (S.stageF !== 'later') list = list.filter(l => l.stage !== 'later');
     const age = l => l.lastAt ? Date.now() - l.lastAt : Infinity;
     const bucket = l => { const a = age(l); return a === Infinity ? 'Never contacted' : a > 90*D ? 'Over 3 months ago' : a > 30*D ? '1–3 months ago' : a > 14*D ? '2–4 weeks ago' : a > 7*D ? '1–2 weeks ago' : 'This week'; };
     list.sort((a, b) => age(b) - age(a) || (isHot(b) - isHot(a)));
@@ -1527,6 +1528,13 @@ function outcomeBar(l){
 /* ---------- focus (calling) mode ---------- */
 function startFocus(){ const q = buildQueue(); if (!q.length) return; S.focus = {q, i: 0, done: 0}; renderFocus(); }
 function curFocus(){ if (!S.focus) return null; while (S.focus.i < S.focus.q.length && !S.leads.get(S.focus.q[S.focus.i])) S.focus.i++; return S.leads.get(S.focus.q[S.focus.i]) || null; }
+/* After a call, message or update you stay on the same lead until you close it or tap Next lead */
+function stay(id, msg){
+  if (msg) toast(msg);
+  if (S.focus) { if (S.sheet) closeSheet(); renderFocus(); }
+  else if (S.leads.has(id)) openSheet('lead', id);
+  render();
+}
 function advance(msg){ if (!S.focus) { if (msg) toast(msg); return; } S.focus.i++; setTimeout(bxRun, 0); S.focus.done++; closeSheet(); renderFocus(); $('#focus').scrollTo(0,0); toast((msg || 'Saved') + (curFocus() ? ' · next lead' : '')); }
 function renderFocus(){
   const el = $('#focus');
@@ -1535,7 +1543,7 @@ function renderFocus(){
   const l = curFocus(), tot = S.focus.q.length;
   if (!l) { el.innerHTML = `<div class="fbar"><div class="wrap"><span class="prog">Done</span><button data-act="exitFocus">Close</button></div></div>
     <div class="wrap fbody"><h2 class="fname">All caught up.</h2><p>You worked through ${S.focus.done} lead${S.focus.done === 1 ? '' : 's'}. Every follow-up is scheduled.</p><button class="btn btn-primary btn-big" data-act="exitFocus">Back to Today</button></div>`; return; }
-  el.innerHTML = `<div class="fbar"><div class="wrap"><button data-act="exitFocus">Exit</button><span class="prog">${S.focus.i + 1} of ${tot}<small>${atRisk(l) ? 'Hot lead' : isNew(l) ? 'New lead' : 'Follow-up'}</small></span><button data-act="skip">Skip</button></div></div>
+  el.innerHTML = `<div class="fbar"><div class="wrap"><button data-act="exitFocus">Exit</button><span class="prog">${S.focus.i + 1} of ${tot}<small>${atRisk(l) ? 'Hot lead' : isNew(l) ? 'New lead' : 'Follow-up'}</small></span><button data-act="skip">Next lead →</button></div></div>
     <div class="wrap fbody">
       <div><h2 class="fname">${esc(l.name || 'No name')} ${l.example ? '<span class="pill ex">Example</span>' : ''}</h2>
       <div class="fsub"><span>${esc(l.flag || '')} ${esc(l.country || '')}</span><span class="pill s-${l.stage}">${esc(STAGE[l.stage])}</span><span>Created ${esc(new Date(l.crmCreated || l.createdAt).toLocaleDateString([], {day:'numeric', month:'short', year:'numeric'}))}</span><button class="chip" style="padding:4px 10px;font-size:13px" data-act="open" data-id="${l.id}">Full profile</button></div></div>
@@ -1764,7 +1772,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '60';
+const APP_VER = '61';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1848,11 +1856,11 @@ document.addEventListener('click', e => {
     case 'addEmail': openSheet('wa', id, {ch: 'email'}); setTimeout(() => { const i = $('#e_email2'); if (i) i.focus(); }, 50); break;
     case 'noop': break;
     case 'copyTpl': try { navigator.clipboard.writeText(t.dataset.v).then(() => toast('Message copied'), () => toast('Copy not allowed here – press and hold the text to copy')); } catch (_) { toast('Copy not allowed here – press and hold the text to copy'); } break;
-    case 'noans': doNoAnswer(id, null); S.focus ? advance('No answer logged') : (toast('No answer logged · follow-up set'), render()); break;
+    case 'noans': doNoAnswer(id, null); stay(id, 'No answer logged · follow-up set'); break;
     case 'noansMsg': { const ch = t.dataset.ch || 'wa';
-      if (ch === 'sms' && tbOn()) { e.preventDefault(); const l = S.leads.get(id); smsViaTextbee(l, knownClient(l) ? 'noanswer_known' : lateThere(l) ? 'noanswer_late' : 'noanswer', () => { doNoAnswer(id, ch); S.focus ? advance('No answer + SMS sent') : render(); }); break; } doNoAnswer(id, ch); later(() => S.focus ? advance(`No answer + ${CH[ch]} logged`) : (toast('Logged · follow-up set'), render())); break; }
-    case 'declined': doDeclined(id); later(() => S.focus ? advance('Declined call logged') : (toast('Declined logged · next try ' + when(S.leads.get(id).nextAt)), render())); break;
-    case 'badnum': doBadNumber(id); S.focus ? advance('Number not working logged') : (toast(S.leads.get(id).stage === 'lost' ? 'Number failed 3 times – moved to Lost' : 'Logged · try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')), render()); break;
+      if (ch === 'sms' && tbOn()) { e.preventDefault(); const l = S.leads.get(id); smsViaTextbee(l, knownClient(l) ? 'noanswer_known' : lateThere(l) ? 'noanswer_late' : 'noanswer', () => { doNoAnswer(id, ch); stay(id); }); break; } doNoAnswer(id, ch); later(() => stay(id, `No answer + ${CH[ch]} logged`)); break; }
+    case 'declined': doDeclined(id); later(() => stay(id, 'Declined logged · next try ' + when(S.leads.get(id).nextAt))); break;
+    case 'badnum': doBadNumber(id); S.focus || S.leads.get(id).stage !== 'lost' ? stay(id, 'Number not working logged – try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')) : (toast(S.leads.get(id).stage === 'lost' ? 'Number failed 3 times – moved to Lost' : 'Logged · try WhatsApp' + (S.leads.get(id).email ? ' or email' : '')), render()); break;
     case 'moveTo': { const l = S.leads.get(id), k = t.dataset.k;
       if (l.stage === k && k !== 'later' && k !== 'pool') { bxResend(l); break; }
       if (k === 'later' || k === 'pool') { openSheet('laterdate', id, {stage: k}); break; }
@@ -1875,7 +1883,7 @@ document.addEventListener('click', e => {
       if (!quick && !typed) { toast('Write a comment or tap a quick update'); if (box) box.focus(); break; }
       if (/^Called – no answer/.test(quick)) {        /* counts as a No answer: next try, missed-call count, final email after the 3rd */
         if (box) box.value = ''; doNoAnswer(id, 'wa', quick + (typed ? ' – ' + typed : ''));
-        S.focus ? advance('No answer logged') : (toast('Logged · next try ' + when(S.leads.get(id).nextAt)), render()); break; }
+        stay(id, 'Logged · next try ' + when(S.leads.get(id).nextAt)); break; }
       const txt = quick ? quick + (typed ? ' – ' + typed : '') : typed;
       const kind = /whatsapp/i.test(quick) ? 'wa' : /email/i.test(quick) ? 'email' : 'comment';
       if (box) box.value = '';
@@ -1885,7 +1893,7 @@ document.addEventListener('click', e => {
     case 'lost': doLost(id); S.focus ? advance('Marked not interested') : (toast('Marked not interested'), render()); break;
     case 'hot': { const l = S.leads.get(id); const on = !l.hot; patchLead(id, {hot: on, stage: on && ['new','noanswer','talking'].includes(l.stage) ? 'hot' : (!on && l.stage === 'hot' ? 'talking' : l.stage), nextAt: on && (!l.nextAt || l.nextAt > at10(1)) ? at10(1) : l.nextAt}, {k:'stage', txt: on ? 'Marked HOT' : 'Removed HOT'}); toast(on ? 'Marked HOT · follow-up tomorrow' : 'HOT removed'); break; }
     case 'waSent': { const l = S.leads.get(id); const k = t.dataset.k;
-      if (t.dataset.ch === 'sms' && tbOn()) { e.preventDefault(); smsViaTextbee(l, k, () => { patchLead(id, {lastAt: Date.now(), nextAt: (!l.nextAt || l.nextAt <= Date.now() + H) ? at10(2) : l.nextAt}, {k: 'sms', txt: 'SMS sent (textbee): ' + (k === 'own' ? 'own message' : TPL_LABEL[k]), bxTxt: 'SMS sent'}, {quiet: true}); closeSheet(); render(); }); break; }
+      if (t.dataset.ch === 'sms' && tbOn()) { e.preventDefault(); smsViaTextbee(l, k, () => { patchLead(id, {lastAt: Date.now(), nextAt: (!l.nextAt || l.nextAt <= Date.now() + H) ? at10(2) : l.nextAt}, {k: 'sms', txt: 'SMS sent (textbee): ' + (k === 'own' ? 'own message' : TPL_LABEL[k]), bxTxt: 'SMS sent'}, {quiet: true}); stay(id); }); break; }
       if (t.dataset.ch === 'botim') { const L = (S.sheet && S.sheet.lang) || l.lang || 'en'; const txt = k === 'own' ? '' : tplText(L, k, {...l, lang: L});
         try { navigator.clipboard.writeText(txt || ('+' + digits(l.phone))).then(() => {}, () => {}); } catch (_) {}
         toast(txt ? 'Message copied – in Botim open the chat with +' + digits(l.phone) + ' and paste' : 'Number copied – paste it in Botim'); }
@@ -1893,7 +1901,7 @@ document.addEventListener('click', e => {
       if (k === 'first' && l.stage === 'new') p.stage = 'noanswer';
       const ch = t.dataset.ch || 'wa';
       patchLead(id, p, {k: ch, txt: CH[ch] + ' sent: ' + (k === 'own' ? 'own message' : TPL_LABEL[k]), bxTxt: CH[ch] + ' sent'}, {quiet: true});
-      later(() => S.focus ? advance('Message logged') : (closeSheet(), toast('Message logged · follow-up set'), render())); break; }
+      later(() => stay(id, 'Message logged · follow-up set')); break; }
     case 'talkSheet': openSheet('talk', id); break;
     case 'meetSheet': openSheet('meet', id); break;
     case 'chip': { const g = t.dataset.g, v = t.dataset.v, F = S.form;
@@ -1910,7 +1918,7 @@ document.addEventListener('click', e => {
       let stage = l.stage; if (temp === 'Hot' && ['new','noanswer','talking'].includes(stage)) stage = 'hot'; else if (['new','noanswer','lost','junk','junkbx'].includes(stage)) stage = 'talking'; else if (temp !== 'Hot' && stage === 'hot') stage = 'talking';
       patchLead(id, {stage, hot: temp === 'Hot', lastOutcome: 'talk', badNumber: 0, rule: l.rule && /^Number not working/.test(l.rule) ? '' : (l.rule || ''), said, todo: todos.length ? [...new Set(todos)].join(', ') : (l.todo || ''), noAnswer: 0, lastAt: Date.now(), nextAt: NEXT_FN[F.next || '3']()},
         {k:'talk', txt: `Talked (${temp.toLowerCase()})` + (said.length ? ': ' + said.join(', ') : '') + (note ? ' – ' + note : '')}, {quiet: true});
-      S.focus ? advance('Call saved') : (closeSheet(), toast('Saved · next follow-up ' + when(S.leads.get(id).nextAt)), render()); break; }
+      stay(id, 'Saved · next follow-up ' + when(S.leads.get(id).nextAt)); break; }
     case 'meetQuick': { const v = t.dataset.v; const d = new Date(); if (v === 't18') d.setHours(18,0,0,0); else { d.setDate(d.getDate() + (v === 'd2' ? 2 : 1)); d.setHours(v === 'm16' ? 16 : 11, 0, 0, 0); }
       S.form.quick = v; S.form.dt = toLocalInput(d.getTime()); $('#meet_dt').value = S.form.dt; t.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === t)); break; }
     case 'saveMeet': { const v = $('#meet_dt').value; const ms = new Date(v).getTime(); if (!v || isNaN(ms)) { toast('Pick a date and time'); break; }
