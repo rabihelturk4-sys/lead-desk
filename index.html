@@ -621,6 +621,7 @@ async function bxRun(){
       bxDrop(job); bxSave(); S.bxErr = '';
     } catch (e) {
       if (e.code === 'net' || /^http5/.test(e.code)) { S.bxErr = e.message; break; }   /* offline: keep and retry later */
+      if (e.code === 'notinbx') { bxDrop(job); bxSave(); continue; }       /* Lead Desk-only lead: skip quietly */
       S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxDrop(job); bxSave(); toast('Bitrix did not take the ' + job.what + ': ' + (e.message || e.code), 9000);
     }
   }
@@ -628,7 +629,9 @@ async function bxRun(){
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') bxRun(); });
 window.addEventListener('online', () => bxRun());
-function bxQueue(l, method, params, what, auto){ bxQ.push({lead: l.id, method, params, what, t: Date.now(), ...(auto ? {auto: true} : {})}); bxSave(); bxRun(); }
+function bxQueue(l, method, params, what, auto){
+  const cur = S.leads.get(l.id) || l;                                   /* lead only in Lead Desk: nothing to send */
+  if (!bxId(cur) && cur.bxNone && Date.now() - cur.bxNone < D && method !== 'ld.junk') return; bxQ.push({lead: l.id, method, params, what, t: Date.now(), ...(auto ? {auto: true} : {})}); bxSave(); bxRun(); }
 const bxDrop = job => { const i = bxQ.indexOf(job); if (i >= 0) bxQ.splice(i, 1); };
 /* The comment from "How did it go?" waits while that lead is still open (max 10 min): if you then write your own comment,
    yours goes to Bitrix instead – one comment, not both. Closing the lead or going to the next one sends it. */
@@ -642,12 +645,8 @@ async function bxEnsure(l){
   let id = '';
   const found = async (type, v) => { if (!v) return ''; const r = await bxCall('crm.duplicate.findbycomm', {entity_type: 'LEAD', type, values: [v]}); return (r && r.LEAD && r.LEAD[0]) ? String(r.LEAD[0]) : ''; };
   id = await found('PHONE', l.phone ? '+' + digits(l.phone) : '') || await found('EMAIL', l.email);
-  if (!id) {
-    const st = (S.cfg.bxMap || {})[l.stage];
-    id = String(await bxCall('crm.lead.add', {fields: {TITLE: (l.name || 'Lead') + ' – Lead Desk', NAME: l.name || '', STATUS_ID: st || undefined,
-      PHONE: l.phone ? [{VALUE: '+' + digits(l.phone), VALUE_TYPE: 'MOBILE'}] : undefined, EMAIL: l.email ? [{VALUE: l.email, VALUE_TYPE: 'WORK'}] : undefined,
-      COMMENTS: [l.note, l.project && 'Interested in: ' + l.project, l.budget && 'Budget: ' + l.budget].filter(Boolean).join('\n') || undefined}}));
-  }
+  /* Lead Desk never creates leads in Bitrix: a lead you added yourself stays in Lead Desk only (checked again once a day) */
+  if (!id) { const cur = S.leads.get(l.id); if (cur) { S.leads.set(l.id, {...cur, bxNone: Date.now()}); write('leads/' + l.id, {bxNone: Date.now()}); } throw {code: 'notinbx', message: 'not in Bitrix'}; }
   if (id) { const cur = S.leads.get(l.id); if (cur) { S.leads.set(l.id, {...cur, bxId: id}); write('leads/' + l.id, {bxId: id}); } }
   return id;
 }
@@ -835,7 +834,7 @@ function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
   const map = S.cfg.bxMap || {};
   const moved = p.stage && !['junk', 'junkbx'].includes(p.stage) && map[p.stage] && (p.stage !== (before && before.stage) || (['later','pool'].includes(p.stage) && p.nextAt));
-  if (moved && REQ_STAGES.includes(p.stage) && reqMissing(l).length) {          /* Bitrix would refuse the move: ask first */
+  if (moved && REQ_STAGES.includes(p.stage) && bxId(l) && reqMissing(l).length) {          /* Bitrix would refuse the move: ask first */
     S.leads.set(l.id, {...S.leads.get(l.id), bxReqPending: p.stage}); write('leads/' + l.id, {bxReqPending: p.stage});
     setTimeout(() => openSheet('reqfields', l.id, {stage: p.stage}), 350);
   } else if (moved) bxQueue(l, 'crm.lead.update', {id: bxId(l) || undefined, fields: {STATUS_ID: map[p.stage], ...bxDateFields(p), ...(l.bxReq || {})}}, 'stage ' + STAGE[p.stage]);
@@ -1772,7 +1771,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '61';
+const APP_VER = '62';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
