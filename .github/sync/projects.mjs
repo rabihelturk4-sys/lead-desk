@@ -11,27 +11,32 @@ async function api(key, path, params = {}){
   return r.json();
 }
 const pick = (o, ...keys) => { for (const k of keys) { const v = k.split('.').reduce((a, b) => a == null ? a : a[b], o); if (v != null && v !== '') return v; } return null; };
+const nm = v => v == null ? null : typeof v === 'object' ? (v.name || v.title || null) : v;
+const url = v => v == null ? '' : typeof v === 'string' ? v : (v.url || v.file || '');
 const toTime = v => { if (v == null) return null; if (typeof v === 'number') return v < 1e12 ? v * 1000 : v; const t = Date.parse(v); return isNaN(t) ? null : t; };
 
 /* One compact project as the app uses it */
-export function compact(p, old = {}){
+export function compact(p, old = {}, devs = new Map()){
   const units = Array.isArray(p.typical_units) ? p.typical_units : [];
-  const beds = [...new Set(units.map(u => u.bedrooms).filter(b => b != null))].sort((a, b) => a - b);
+  let beds = [...new Set(units.map(u => u.bedrooms).filter(b => b != null))].sort((a, b) => a - b);
+  if (!beds.length && p.min_bedrooms != null) for (let b = +p.min_bedrooms; b <= +(p.max_bedrooms ?? p.min_bedrooms) && beds.length < 8; b++) beds.push(b);
+  const loc = p.location || {}, dv = p.developer;
   const plans = Array.isArray(p.payment_plans) ? p.payment_plans : [];
   return {
     id: String(p.id),
     name: String(p.name || '').slice(0, 80),
-    dev: String(pick(p, 'developer.name', 'developer_name') || old.dev || '').slice(0, 60),
-    area: String(pick(p, 'location.name', 'district.name', 'district', 'area', 'location_name') || old.area || pick(p, 'region') || '').slice(0, 60),
-    region: String(pick(p, 'region', 'region.name') || old.region || '').slice(0, 40),
+    dev: String((dv && typeof dv === 'object' ? dv.name : typeof dv === 'string' ? dv : devs.get(String(dv))) || p.brand || old.dev || '').slice(0, 60),
+    area: String(nm(loc.district) || nm(loc.sector) || nm(loc.village) || nm(loc.city) || loc.name || old.area || nm(loc.region) || '').slice(0, 60),
+    region: String(nm(loc.region) || nm(loc.city) || nm(p.region) || old.region || '').slice(0, 40),
     min: Math.round(Number(pick(p, 'min_price')) || 0) || old.min || 0,
     cur: String(pick(p, 'price_currency') || old.cur || 'AED'),
     sale: String(pick(p, 'sale_status') || old.sale || ''),
-    done: toTime(pick(p, 'completion_date', 'planned_completion_date', 'completion_datetime', 'handover_date')) || old.done || null,
+    done: toTime(pick(p, 'completion_date', 'completion_datetime', 'construction_end_date')) || old.done || null,
     img: String(pick(p, 'cover_image.url', 'cover_image_url') || old.img || ''),
+    bro: url(p.marketing_brochure) || old.bro || '',
     beds: beds.length ? beds : (old.beds || []),
     plan: String((plans[0] && plans[0].name) || old.plan || '').slice(0, 40),
-    post: plans.some(pl => /post/i.test(pl.name || '')) || !!old.post,
+    post: !!p.post_handover || plans.some(pl => /post/i.test(pl.name || '') || +pl.months_after_handover > 0) || !!old.post,
     det: p.typical_units || p.payment_plans ? Date.now() : (old.det || 0)
   };
 }
@@ -46,10 +51,11 @@ export async function syncProjects({fs, root, sync, set, notes, now}){
   try {
     const day = new Date(now + 4 * 3600e3).toISOString().slice(0, 10);
     if (sync.projDay !== day || !byId.size) {                           /* daily: the full list */
+      const devs = new Map(); try { const dl = await api(key, '/developers', {limit: 1000}); for (const d of (dl.results || dl || [])) devs.set(String(d.id), d.name); } catch (e) {}
       const seen = new Set(); let offset = 0;
       for (let page = 0; page < 40; page++) {
         const j = await api(key, '/projects', {limit: 100, offset, country: cfg.reellyCountry || 'United Arab Emirates', region: cfg.reellyRegion || undefined, preferred_currency: 'AED'});
-        for (const p of j.results || []) { seen.add(String(p.id)); byId.set(String(p.id), compact(p, byId.get(String(p.id)))); }
+        for (const p of j.results || []) { seen.add(String(p.id)); byId.set(String(p.id), compact(p, byId.get(String(p.id)), devs)); }
         if (!j.next || !(j.results || []).length) break; offset += 100;
       }
       for (const id of [...byId.keys()]) if (!seen.has(id)) byId.delete(id);   /* gone from Reelly */
@@ -62,9 +68,9 @@ export async function syncProjects({fs, root, sync, set, notes, now}){
       console.log('::notice::Reelly detail fields: ' + shape(d).slice(0, 3500));
     }
     /* each run: details (bedrooms, payment plan, handover) for up to 25 projects */
-    const todo = [...byId.values()].filter(p => !p.det || now - p.det > 14 * D).slice(0, 25);
+    const todo = [...byId.values()].filter(p => !p.det || now - p.det > 14 * D || (p.v || 0) < 2).slice(0, 25);
     for (const p of todo) {
-      try { const d = await api(key, '/projects/' + encodeURIComponent(p.id), {preferred_currency: 'AED'}); byId.set(p.id, {...compact(d, p), det: now}); }
+      try { const d = await api(key, '/projects/' + encodeURIComponent(p.id), {preferred_currency: 'AED'}); byId.set(p.id, {...compact(d, p), det: now, v: 2}); }
       catch (e) { byId.set(p.id, {...p, det: now}); }
     }
     let items = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -72,6 +78,6 @@ export async function syncProjects({fs, root, sync, set, notes, now}){
     await ref.set({at: now, items});
     set.projRun = now; set.projCount = items.length; set.projError = '';
     const has = k => items.filter(p => Array.isArray(p[k]) ? p[k].length : p[k]).length;
-    notes.push(`Reelly: ${items.length} projects, ${todo.length} detailed (with price ${has('min')}, area ${has('area')}, handover ${has('done')}, plan ${has('plan')}, bedrooms ${has('beds')}, image ${has('img')})`);
+    notes.push(`Reelly: ${items.length} projects, ${todo.length} detailed (with price ${has('min')}, developer ${has('dev')}, area ${has('area')}, handover ${has('done')}, plan ${has('plan')}, bedrooms ${has('beds')}, brochure ${has('bro')}, image ${has('img')})`);
   } catch (e) { set.projRun = now; set.projError = String(e.message || e); notes.push('Reelly problem: ' + set.projError); }
 }

@@ -52,15 +52,28 @@ export function rulePlan(leads, now, name){
     tip: TIPS[dubai(now).getUTCDate() % TIPS.length], ai: false};
 }
 
+/* Google retires model versions: use the newest "flash" model this key can use, then known names */
+let MODELS = null;
+async function models(key){
+  if (MODELS) return MODELS;
+  let found = [];
+  try { const j = await (await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`)).json();
+    const ver = n => (n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1] * 1;
+    found = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /flash/i.test(m.name) && !/lite|image|tts|live|audio|thinking|exp|preview|embed/i.test(m.name))
+      .map(m => m.name.replace(/^models\//, '')).sort((a, b) => ver(b) - ver(a) || a.length - b.length); } catch (e) {}
+  return (MODELS = [...new Set([...found.slice(0, 3), 'gemini-flash-latest', 'gemini-2.5-flash'])]);
+}
 async function gemini(key, prompt){
-  for (const model of ['gemini-flash-latest', 'gemini-2.5-flash']) {
+  let last;
+  for (const model of await models(key)) {
     try {
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0.6}})});
       const j = await r.json(); if (!r.ok) throw new Error((j.error && j.error.message) || r.status);
       return JSON.parse(j.candidates[0].content.parts.map(p => p.text || '').join(''));
-    } catch (e) { if (model === 'gemini-2.5-flash') throw e; }
+    } catch (e) { last = e; }
   }
+  throw last;
 }
 const COACH = name => `You are a calm, supportive sales coach for ${name || 'a real estate agent'}, who sells Dubai off-plan property to international buyers by phone and WhatsApp. They forget things easily and do not like to feel pushed, so be warm, short and practical – never pushy, no guilt, at most one exclamation mark.`;
 

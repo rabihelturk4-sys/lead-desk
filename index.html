@@ -1207,14 +1207,27 @@ function viewLeadsShell(){
     <div class="chips" id="sortChips"></div></div><div id="leadList" style="display:flex;flex-direction:column;gap:16px"></div>`;
 }
 /* Free AI ideas (Google Gemini free key): message drafts for a lead and outreach ideas – no Claude tokens */
+/* Google keeps retiring model versions: ask Google which "flash" models this key can use (newest first), then fall back to known names */
+let GEM_MODELS = null;
+async function gemModels(key){
+  if (GEM_MODELS) return GEM_MODELS;
+  let found = [];
+  try { const j = await (await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=' + encodeURIComponent(key))).json();
+    const ver = n => (n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1] * 1;
+    found = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /flash/i.test(m.name) && !/lite|image|tts|live|audio|thinking|exp|preview|embed/i.test(m.name))
+      .map(m => m.name.replace(/^models\//, '')).sort((a, b) => ver(b) - ver(a) || a.length - b.length); } catch (e) {}
+  GEM_MODELS = [...new Set([...found.slice(0, 3), 'gemini-flash-latest', 'gemini-2.5-flash'])];
+  return GEM_MODELS;
+}
+const gemGone = (status, msg) => status === 404 || /no longer available|not found|is not supported|deprecated/i.test(msg || '');
 const gemKey = () => (aiProvider(aiKey()) === 'gemini' ? aiKey() : '') || ((S.priv || {}).geminiKey || '');
 async function gemini(prompt, json){
   const key = gemKey(); if (!key) throw {code: 'nokey', message: 'Add a free Google Gemini key in Settings → AI picture reading (aistudio.google.com/apikey)'};
-  for (const model of ['gemini-flash-latest', 'gemini-2.5-flash']) {
+  for (const model of await gemModels(key)) {
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {temperature: 0.8, ...(json ? {responseMimeType: 'application/json'} : {})}})}).catch(() => { throw {code: 'net', message: 'No connection to Gemini'}; });
-    if (r.status === 404) continue;
     const j = await r.json().catch(() => ({}));
+    if (!r.ok && gemGone(r.status, j.error && j.error.message)) continue;
     if (r.status === 429) throw {code: 'busy', message: 'Gemini free limit reached for now – try again in a minute'};
     if (!r.ok) throw {code: 'key', message: (j.error && j.error.message) || 'Gemini error ' + r.status};
     const t = ((j.candidates || [])[0] || {}).content; const txt = t ? t.parts.map(x => x.text || '').join('') : '';
@@ -1235,10 +1248,10 @@ async function aiDrafts(l, ch){
 }
 /* ---------- Projects from Reelly (synced daily by the background service): pick 1–3 and send them ---------- */
 const PROJ_TXT = {
-  en: ['Hi {name}, here {are} {n} project{s} I think could be a great fit for you:', 'from', 'by', 'Handover', 'Payment plan', 'BR', 'Happy to send you brochures, floor plans or arrange a quick call – just let me know which one interests you most.'],
-  sv: ['Hej {name}, här {are} {n} projekt som jag tror kan passa dig riktigt bra:', 'från', 'av', 'Inflytt', 'Betalningsplan', 'sovrum', 'Jag skickar gärna broschyrer och planlösningar eller bokar ett kort samtal – säg bara vilket som intresserar dig mest.'],
-  ar: ['مرحباً {name}، إليك {n} من المشاريع التي أعتقد أنها قد تناسبك:', 'تبدأ من', 'من', 'التسليم', 'خطة الدفع', 'غرف', 'يسعدني إرسال الكتيبات والمخططات أو ترتيب مكالمة قصيرة – فقط أخبرني أيها يهمك أكثر.'],
-  ru: ['Здравствуйте, {name}! Вот {n} проект(а), которые, на мой взгляд, могут вам подойти:', 'от', 'от застройщика', 'Сдача', 'План оплаты', 'спал.', 'С удовольствием пришлю брошюры и планировки или организую короткий звонок – скажите, какой вариант интереснее.']};
+  en: ['Hi {name}, here {are} {n} project{s} I think could be a great fit for you:', 'from', 'by', 'Handover', 'Payment plan', 'BR', 'Happy to send you brochures, floor plans or arrange a quick call – just let me know which one interests you most.', 'Brochure'],
+  sv: ['Hej {name}, här {are} {n} projekt som jag tror kan passa dig riktigt bra:', 'från', 'av', 'Inflytt', 'Betalningsplan', 'sovrum', 'Jag skickar gärna broschyrer och planlösningar eller bokar ett kort samtal – säg bara vilket som intresserar dig mest.', 'Broschyr'],
+  ar: ['مرحباً {name}، إليك {n} من المشاريع التي أعتقد أنها قد تناسبك:', 'تبدأ من', 'من', 'التسليم', 'خطة الدفع', 'غرف', 'يسعدني إرسال الكتيبات والمخططات أو ترتيب مكالمة قصيرة – فقط أخبرني أيها يهمك أكثر.', 'الكتيب'],
+  ru: ['Здравствуйте, {name}! Вот {n} проект(а), которые, на мой взгляд, могут вам подойти:', 'от', 'от застройщика', 'Сдача', 'План оплаты', 'спал.', 'С удовольствием пришлю брошюры и планировки или организую короткий звонок – скажите, какой вариант интереснее.', 'Брошюра']};
 const money = (v, cur) => !v ? '' : (cur || 'AED') + ' ' + (v >= 1e6 ? (Math.round(v / 1e5) / 10) + 'M' : Math.round(v / 1e3) + 'K');
 const qtr = t => { if (!t) return ''; const d = new Date(t); return 'Q' + (Math.floor(d.getUTCMonth() / 3) + 1) + ' ' + d.getUTCFullYear(); };
 const bedTxt = b => !b || !b.length ? '' : (b[0] === 0 ? 'Studio' : b[0]) + (b.length > 1 ? '–' + b[b.length - 1] : '');
@@ -1246,7 +1259,7 @@ function projMessage(l, ids, L){
   const T = PROJ_TXT[L] || PROJ_TXT.en, ps = ids.map(id => (S.proj || []).find(p => p.id === id)).filter(Boolean), n = ps.length;
   const head = T[0].replace('{name}', (l.name || '').split(' ')[0]).replace('{n}', n).replace('{are}', L === 'sv' ? (n > 1 ? 'är' : 'är') : (n > 1 ? 'are' : 'is')).replace('{s}', n > 1 ? 's' : '');
   const lines = ps.map((p, i) => [`${i + 1}) *${p.name}*` + (p.area ? ' – ' + p.area : '') + (p.dev ? ` (${T[2]} ${p.dev})` : ''),
-    [p.min ? T[1] + ' ' + money(p.min, p.cur) : '', p.beds && p.beds.length ? bedTxt(p.beds) + ' ' + T[5] : '', p.done ? T[3] + ' ' + qtr(p.done) : '', p.plan ? T[4] + ' ' + p.plan : ''].filter(Boolean).join(' · ')].filter(Boolean).join('\n   '));
+    [p.min ? T[1] + ' ' + money(p.min, p.cur) : '', p.beds && p.beds.length ? bedTxt(p.beds) + ' ' + T[5] : '', p.done ? T[3] + ' ' + qtr(p.done) : '', p.plan ? T[4] + ' ' + p.plan : ''].filter(Boolean).join(' · '), p.bro ? T[7] + ': ' + p.bro : ''].filter(Boolean).join('\n   '));
   return `${head}\n\n${lines.join('\n\n')}\n\n${T[6]}\n\n${myName()}, RTI Real Estate` + (S.cfg.cardLink === false ? '' : '\n' + (CARD_LBL[L] || CARD_LBL.en) + CARD_URL);
 }
 function projList(s){
@@ -1944,7 +1957,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '66';
+const APP_VER = '67';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -2437,14 +2450,14 @@ async function aiRead(file){
       throw e;
     }
   }
-  for (const model of ['gemini-flash-latest', 'gemini-2.5-flash']) {
+  for (const model of await gemModels(key)) {
     let r;
     try {
       r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({contents: [{parts: [{inline_data: {mime_type: 'image/jpeg', data}}, {text: AI_PROMPT}]}]})});
     } catch (e) { throw {code: 'net'}; }
-    if (r.status === 404) continue;
     const j = await r.json().catch(() => ({}));
+    if (!r.ok && gemGone(r.status, j.error && j.error.message)) continue;
     if (r.status === 400 || r.status === 401 || r.status === 403) throw {code: 'key', message: j.error && j.error.message};
     if (r.status === 429) throw {code: 'busy'};
     if (!r.ok) throw {code: 'other', message: j.error && j.error.message};
