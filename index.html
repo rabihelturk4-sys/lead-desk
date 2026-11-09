@@ -1283,7 +1283,8 @@ function projList(s){
 /* ---------- Your own projects: paste a launch message / brochure text, AI fills the fields, you check and save ---------- */
 const pNum = v => { const m = String(v || '').replace(/,/g, '').match(/([\d.]+)\s*(m|k|million|mn)?/i); if (!m) return 0; const n = parseFloat(m[1]); return Math.round(n * (/^m/i.test(m[2] || '') ? 1e6 : /^k/i.test(m[2] || '') ? 1e3 : 1)); };
 const pBeds = v => { const t = String(v || '').toLowerCase(), out = new Set(); if (/studio/.test(t)) out.add(0); const ns = (t.match(/\d+/g) || []).map(Number).filter(n => n < 10);
-  if (ns.length >= 2 && /[-–to]/.test(t)) for (let b = Math.min(...ns); b <= Math.max(...ns); b++) out.add(b); else ns.forEach(n => out.add(n)); return [...out].sort((a, b) => a - b); };
+  const range = /[-–]|\bto\b/.test(t), lo = out.has(0) && ns.length === 1 ? 0 : Math.min(...ns);
+  if (range && ns.length && (ns.length >= 2 || out.has(0))) for (let b = lo; b <= Math.max(...ns); b++) out.add(b); else ns.forEach(n => out.add(n)); return [...out].sort((a, b) => a - b); };
 const pDone = v => { const t = String(v || ''), q = t.match(/q([1-4])\D*(20\d\d)/i), y = t.match(/(20\d\d)/); if (/ready/i.test(t)) return Date.now() - D;
   if (q) return Date.UTC(+q[2], +q[1] * 3 - 1, 28); const d = Date.parse(t); if (!isNaN(d)) return d; return y ? Date.UTC(+y[1], 11, 31) : null; };
 async function aiReadProject(text){
@@ -1294,12 +1295,36 @@ function projAddSheet(s){
   const fld = (k, label, ph) => `<div class="field"><label for="pa_${k}">${label}</label><input class="input" id="pa_${k}" data-pa="${k}" value="${esc(f[k] || '')}" placeholder="${ph || ''}"></div>`;
   return head('Add a project', 'Paste what the developer or broker sent you – the AI fills in the details')
     + `<div class="form"><textarea class="input" id="pa_text" rows="5" placeholder="Paste the launch message, brochure text or email here…">${esc(s.text || '')}</textarea>
-      <button class="btn btn-primary" data-act="projAiRead">✨ Fill in with AI (free)</button>${s.busy ? '<div class="hint">Reading…</div>' : ''}${s.err ? `<div class="banner">${esc(s.err)}</div>` : ''}
+      <button class="btn btn-primary" data-act="projAiRead">✨ Fill in with AI (free)</button>
+      <label class="btn btn-ghost" for="pa_file">📄 Import a list (Excel or CSV, e.g. Property Monitor export)</label><input type="file" id="pa_file" accept=".xlsx,.xls,.csv" hidden>${s.busy ? '<div class="hint">Reading…</div>' : ''}${s.err ? `<div class="banner">${esc(s.err)}</div>` : ''}
       ${fld('name', 'Project name *', 'e.g. Sobha Hartland II')}${fld('dev', 'Developer', 'e.g. Sobha')}${fld('area', 'Area', 'e.g. MBR City')}
       ${fld('price', 'From price (AED)', 'e.g. 1.65M')}${fld('beds', 'Bedrooms', 'e.g. Studio–3')}${fld('hand', 'Handover', 'e.g. Q4 2027 or Ready')}
       ${fld('plan', 'Payment plan', 'e.g. 60/40')}${chipGroup('post', [['','No post-handover'],['1','Post-handover plan']], f.post ? '1' : '', 'paPost')}${fld('bro', 'Brochure link (optional)', 'https://…')}
       <button class="btn btn-primary btn-big" data-act="projSave">Save project</button></div>
       ${mine.length ? `<div class="lbl">Your projects (${mine.length})</div><div class="list">${mine.map(p => `<div class="row"><span class="rmain"><span class="rname">${esc(p.name)}</span><span class="rsub">${esc([p.area, p.min ? 'from ' + money(p.min, p.cur) : '', p.done ? qtr(p.done) : '', p.plan].filter(Boolean).join(' · '))}</span></span><button class="btn btn-ghost" data-act="projDel" data-v="${esc(p.id)}">Remove</button></div>`).join('')}</div>` : ''}`;
+}
+/* Import a project list (Excel or CSV export, e.g. from Property Monitor): columns are recognised by their names */
+const loadXLSX = () => window.XLSX ? Promise.resolve(window.XLSX) : new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = () => ok(window.XLSX); sc.onerror = () => no(new Error('Could not load the Excel reader – check the connection')); document.head.appendChild(sc); });
+const PCOL = {name: /^(project( name)?|name|building|development)$|project name/i, dev: /developer/i, area: /community|area|location|district|sub.?community|master project/i, price: /price|starting|from|min/i,
+  beds: /bed|unit type|typolog|layout/i, hand: /handover|completion|delivery|ready/i, plan: /payment/i, post: /post.?handover/i, bro: /brochure|link|url|website/i};
+async function importProjectsFile(file){
+  const X = await loadXLSX(), wb = X.read(await file.arrayBuffer(), {type: 'array', cellDates: true});
+  const rows = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: false, defval: ''});
+  const hi = rows.findIndex(r => r.filter(c => String(c).trim()).length >= 3 && r.some(c => PCOL.name.test(String(c).trim())));
+  if (hi < 0) throw new Error('No column with the project name found – send me the file and I will adjust the import');
+  const hdr = rows[hi].map(c => String(c).trim()), col = {};
+  for (const [k, re] of Object.entries(PCOL)) { const i = hdr.findIndex((h, j) => re.test(h) && !Object.values(col).includes(j) && !(k !== 'post' && PCOL.post.test(h))); if (i >= 0) col[k] = i; }
+  const have = new Set((S.myProj || []).map(p => norm(p.name + '|' + p.area))), out = [], v = (r, k) => col[k] == null ? '' : String(r[col[k]] || '').trim();
+  for (const r of rows.slice(hi + 1)) {
+    const name = v(r, 'name'); if (!name) continue;
+    const key = norm(name + '|' + v(r, 'area')); if (have.has(key)) continue; have.add(key);
+    out.push({id: 'my' + Date.now().toString(36) + out.length, name: name.slice(0, 80), dev: v(r, 'dev').slice(0, 60), area: v(r, 'area').slice(0, 60), region: 'Dubai', min: pNum(v(r, 'price')), cur: 'AED', sale: '',
+      done: pDone(v(r, 'hand')), img: '', bro: /^https?:\/\//.test(v(r, 'bro')) ? v(r, 'bro') : '', beds: pBeds(v(r, 'beds')), plan: v(r, 'plan').slice(0, 40), post: /^(yes|y|true|1)$/i.test(v(r, 'post')) || /post/i.test(v(r, 'plan')), seen: Date.now(), mine: true});
+  }
+  let items = [...out, ...(S.myProj || [])];
+  while (JSON.stringify(items).length > 900000) items = items.slice(0, Math.floor(items.length * 0.9));
+  saveMyProj(items);
+  return {added: out.length, cols: Object.keys(col)};
 }
 function saveMyProj(items){ write('config/myprojects', {items, at: Date.now()}, 'set'); S.myProj = items; S.proj = [...items, ...(S.projR || [])]; }
 function projSheet(l, s){
@@ -2000,7 +2025,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '69';
+const APP_VER = '70';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -2605,6 +2630,11 @@ async function importLeads(text){
   const box = $('#imp_text'); if (box) box.value = ''; renderView(); toast(S.impMsg);
 }
 /* Business card: an image is made smaller (JPEG, max 1400 px) so it fits in the database; a PDF must be under 600 KB */
+document.addEventListener('change', async e => { if (e.target.id !== 'pa_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  toast('Reading ' + f.name + '…');
+  try { const r = await importProjectsFile(f); toast(r.added ? `${r.added} projects imported ✓ (columns found: ${r.cols.join(', ')})` : 'No new projects in this file', 9000); renderSheet(); }
+  catch (err) { toast('Import failed: ' + (err.message || err), 9000); }
+});
 document.addEventListener('change', async e => { if (e.target.id !== 'card_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   try {
     let data, name = f.name || 'business-card';
