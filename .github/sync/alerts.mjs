@@ -253,6 +253,7 @@ async function main(){
 
   /* 6. Reelly projects (only when a Reelly API key is saved in Lead Desk) */
   await syncProjects({fs, root, sync, set, notes, now}).catch(e => notes.push('Reelly: ' + e.message));
+  if (set.projNew && set.projNew.length) await nudge(`🏗 ${set.projNew.length} new project${set.projNew.length > 1 ? 's' : ''} on Reelly`, set.projNew.slice(0, 3).join(', ') + ' – tap to pitch to your clients.', './');
 
   set.alertsRun = now;
   await syncRef.set(set, {merge: true});

@@ -37,7 +37,9 @@ export function compact(p, old = {}, devs = new Map()){
     beds: beds.length ? beds : (old.beds || []),
     plan: String((plans[0] && plans[0].name) || old.plan || '').slice(0, 40),
     post: !!p.post_handover || plans.some(pl => /post/i.test(pl.name || '') || +pl.months_after_handover > 0) || !!old.post,
-    det: p.typical_units || p.payment_plans ? Date.now() : (old.det || 0)
+    det: p.typical_units || p.payment_plans ? Date.now() : (old.det || 0),
+    upd: toTime(p.updated_at) || old.upd || null,
+    seen: old.seen || null
   };
 }
 
@@ -52,14 +54,16 @@ export async function syncProjects({fs, root, sync, set, notes, now}){
     const day = new Date(now + 4 * 3600e3).toISOString().slice(0, 10);
     if (sync.projDay !== day || !byId.size) {                           /* daily: the full list */
       const devs = new Map(); try { const dl = await api(key, '/developers', {limit: 1000}); for (const d of (dl.results || dl || [])) devs.set(String(d.id), d.name); } catch (e) {}
-      const seen = new Set(); let offset = 0;
+      const seen = new Set(), firstSync = !byId.size, added = []; let offset = 0;
       for (let page = 0; page < 40; page++) {
         const j = await api(key, '/projects', {limit: 100, offset, country: cfg.reellyCountry || 'United Arab Emirates', region: cfg.reellyRegion || undefined, preferred_currency: 'AED'});
-        for (const p of j.results || []) { seen.add(String(p.id)); byId.set(String(p.id), compact(p, byId.get(String(p.id)), devs)); }
+        for (const p of j.results || []) { const id = String(p.id), old = byId.get(id); seen.add(id);
+          const c = compact(p, old, devs); if (!old) { c.seen = firstSync ? (c.upd || now - 60 * D) : now; if (!firstSync) added.push(c.name); }   /* new on Reelly */
+          byId.set(id, c); }
         if (!j.next || !(j.results || []).length) break; offset += 100;
       }
       for (const id of [...byId.keys()]) if (!seen.has(id)) byId.delete(id);   /* gone from Reelly */
-      set.projDay = day;
+      set.projDay = day; if (added.length) { set.projNew = added.slice(0, 10); set.projNewAt = now; }
     }
     if (process.env.REELLY_SHAPE === '1' && byId.size) {                /* field names only (no values), to map them */
       const shape = o => Object.entries(o || {}).map(([k, v]) => k + (v && typeof v === 'object' && !Array.isArray(v) ? '{' + Object.keys(v).join(',') + '}' : Array.isArray(v) ? '[' + (v[0] && typeof v[0] === 'object' ? Object.keys(v[0]).join(',') : '') + ']' : '')).join(' ');
