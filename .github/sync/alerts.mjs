@@ -103,7 +103,7 @@ async function main(){
     await coachRef.set(doc, {merge: false}).catch(() => {});
     const names = plan.top.map(t => t.name.split(' ')[0]);
     await nudge(plan.greeting.slice(0, 60), names.length ? `Start with ${names.join(', ')}. Tap for the why.` : 'Nothing urgent today – a good day for Pool leads.', './');
-    set.morningDay = day; notes.push('coach plan' + (plan.ai ? ' (AI)' : '') + (plan.aiError ? ' – AI problem: ' + plan.aiError : ''));
+    set.morningDay = day; notes.push('coach plan' + (plan.ai ? ' (AI)' : '') + (aiKey ? ' [Gemini key found]' : ' [no Gemini key]') + ' [' + plan.top.length + ' leads]' + (plan.aiError ? ' – AI problem: ' + plan.aiError : ''));
   }
 
   /* 2. Hot leads cooling down: one gentle bundled note after lunch, or one per lead in "normal" style */
