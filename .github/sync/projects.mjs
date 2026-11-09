@@ -55,6 +55,12 @@ export async function syncProjects({fs, root, sync, set, notes, now}){
       for (const id of [...byId.keys()]) if (!seen.has(id)) byId.delete(id);   /* gone from Reelly */
       set.projDay = day;
     }
+    if (process.env.REELLY_SHAPE === '1' && byId.size) {                /* field names only (no values), to map them */
+      const shape = o => Object.entries(o || {}).map(([k, v]) => k + (v && typeof v === 'object' && !Array.isArray(v) ? '{' + Object.keys(v).join(',') + '}' : Array.isArray(v) ? '[' + (v[0] && typeof v[0] === 'object' ? Object.keys(v[0]).join(',') : '') + ']' : '')).join(' ');
+      const id = [...byId.keys()][0], l = await api(key, '/projects', {limit: 1}), d = await api(key, '/projects/' + id, {});
+      console.log('::notice::Reelly list fields: ' + shape((l.results || [])[0]).slice(0, 1800));
+      console.log('::notice::Reelly detail fields: ' + shape(d).slice(0, 3500));
+    }
     /* each run: details (bedrooms, payment plan, handover) for up to 25 projects */
     const todo = [...byId.values()].filter(p => !p.det || now - p.det > 14 * D).slice(0, 25);
     for (const p of todo) {

@@ -46,6 +46,7 @@ jobs:
           ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
           ZOHO_IMAP_HOST: ${{ secrets.ZOHO_IMAP_HOST }}
           COACH_FORCE: ${{ github.event.inputs.coach }}
+          REELLY_SHAPE: ${{ github.event.inputs.coach }}
           LEADDESK_UID: ${{ secrets.LEADDESK_UID }}
       - name: Send waiting emails
         if: always()
