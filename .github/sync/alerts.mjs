@@ -6,6 +6,7 @@
    - changes made in Bitrix (stage, new comment) → copied into Lead Desk */
 import {form} from './bitrix-sync.mjs';
 import {coachCfg, isQuiet, isDayOff, aiPlan, weekly, eveningText} from './coach.mjs';
+import {syncProjects} from './projects.mjs';
 const H = 3600e3, D = 24 * H;
 const dubai = t => new Date(t + 4 * H);
 const dubaiDay = t => dubai(t).toISOString().slice(0, 10);
@@ -249,6 +250,9 @@ async function main(){
       notes.push(`Bitrix comments: ${linked.length} leads checked, ${seen} with comments, ${added} copied`);
     } catch (e) { notes.push('Bitrix comments problem: ' + e.message); }
   }
+
+  /* 6. Reelly projects (only when a Reelly API key is saved in Lead Desk) */
+  await syncProjects({fs, root, sync, set, notes, now}).catch(e => notes.push('Reelly: ' + e.message));
 
   set.alertsRun = now;
   await syncRef.set(set, {merge: true});

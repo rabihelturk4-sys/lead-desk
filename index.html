@@ -114,6 +114,7 @@ h2.sec small{color:var(--muted);font-family:var(--f-body);font-weight:500;font-s
 .updbox{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
 .updbox textarea.input{min-height:70px}
 .movebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.prow{align-items:flex-start}.prow img{width:64px;height:48px;object-fit:cover;border-radius:8px;flex:none}.prow.on{outline:2px solid var(--brand,#2563eb)}
 .coach{background:var(--card,#fff);border:1px solid var(--line,#e5e7eb);border-radius:16px;padding:14px;margin:12px 0;display:flex;flex-direction:column;gap:8px}
 .coach .clbl{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .coach .cgreet{font-weight:600}
@@ -1015,6 +1016,7 @@ function connect(root){
   }, e => { $('#sync').textContent = 'Sync error'; toast('Could not load leads: ' + e.message); }));
   unsubs.push(db.doc('config/main').onSnapshot(s => { S.cfg = s.exists ? JSON.parse(JSON.stringify(s.data())) : {}; S.cfgLoaded = true; softRender(); if (!pushTried) { pushTried = true; refreshPush();  setTimeout(queueMonthly, 5000); } }, () => {}));
   unsubs.push(db.doc('config/sync').onSnapshot(s => { S.sync = s.exists ? s.data() : null; }, () => {}));
+  unsubs.push(db.doc('config/projects').onSnapshot(s => { const d = s.exists ? s.data() : {}; S.proj = d.items || []; S.projAt = d.at || 0; }, () => {}));
   unsubs.push(db.doc('config/coach').onSnapshot(s => { S.coach = s.exists ? s.data() : null; softRender(); }, () => {}));
   /* Bitrix link and the "update Bitrix" switch follow you to every device you sign in on (kept in your own account, users/{uid}/config/private) */
   unsubs.push(db.doc('config/private').onSnapshot(s => { const d = s.exists ? s.data() : {}; let ch = false; S.priv = d;
@@ -1231,16 +1233,57 @@ async function aiDrafts(l, ch){
   const j = await gemini(`${AI_ME()}\n\n${leadBrief(l)}\n\nWrite 3 different ${kind} options to (re)start the conversation with this client, each with a different angle (e.g. value/offer, a simple question, a personal touch). Use the client's language. Reply only JSON: {"options":[{"angle":"","text":""}]}`, true);
   return (j.options || []).slice(0, 3).map(o => ({angle: String(o.angle || '').slice(0, 40), text: String(o.text || '').trim()})).filter(o => o.text);
 }
+/* ---------- Projects from Reelly (synced daily by the background service): pick 1–3 and send them ---------- */
+const PROJ_TXT = {
+  en: ['Hi {name}, here {are} {n} project{s} I think could be a great fit for you:', 'from', 'by', 'Handover', 'Payment plan', 'BR', 'Happy to send you brochures, floor plans or arrange a quick call – just let me know which one interests you most.'],
+  sv: ['Hej {name}, här {are} {n} projekt som jag tror kan passa dig riktigt bra:', 'från', 'av', 'Inflytt', 'Betalningsplan', 'sovrum', 'Jag skickar gärna broschyrer och planlösningar eller bokar ett kort samtal – säg bara vilket som intresserar dig mest.'],
+  ar: ['مرحباً {name}، إليك {n} من المشاريع التي أعتقد أنها قد تناسبك:', 'تبدأ من', 'من', 'التسليم', 'خطة الدفع', 'غرف', 'يسعدني إرسال الكتيبات والمخططات أو ترتيب مكالمة قصيرة – فقط أخبرني أيها يهمك أكثر.'],
+  ru: ['Здравствуйте, {name}! Вот {n} проект(а), которые, на мой взгляд, могут вам подойти:', 'от', 'от застройщика', 'Сдача', 'План оплаты', 'спал.', 'С удовольствием пришлю брошюры и планировки или организую короткий звонок – скажите, какой вариант интереснее.']};
+const money = (v, cur) => !v ? '' : (cur || 'AED') + ' ' + (v >= 1e6 ? (Math.round(v / 1e5) / 10) + 'M' : Math.round(v / 1e3) + 'K');
+const qtr = t => { if (!t) return ''; const d = new Date(t); return 'Q' + (Math.floor(d.getUTCMonth() / 3) + 1) + ' ' + d.getUTCFullYear(); };
+const bedTxt = b => !b || !b.length ? '' : (b[0] === 0 ? 'Studio' : b[0]) + (b.length > 1 ? '–' + b[b.length - 1] : '');
+function projMessage(l, ids, L){
+  const T = PROJ_TXT[L] || PROJ_TXT.en, ps = ids.map(id => (S.proj || []).find(p => p.id === id)).filter(Boolean), n = ps.length;
+  const head = T[0].replace('{name}', (l.name || '').split(' ')[0]).replace('{n}', n).replace('{are}', L === 'sv' ? (n > 1 ? 'är' : 'är') : (n > 1 ? 'are' : 'is')).replace('{s}', n > 1 ? 's' : '');
+  const lines = ps.map((p, i) => [`${i + 1}) *${p.name}*` + (p.area ? ' – ' + p.area : '') + (p.dev ? ` (${T[2]} ${p.dev})` : ''),
+    [p.min ? T[1] + ' ' + money(p.min, p.cur) : '', p.beds && p.beds.length ? bedTxt(p.beds) + ' ' + T[5] : '', p.done ? T[3] + ' ' + qtr(p.done) : '', p.plan ? T[4] + ' ' + p.plan : ''].filter(Boolean).join(' · ')].filter(Boolean).join('\n   '));
+  return `${head}\n\n${lines.join('\n\n')}\n\n${T[6]}\n\n${myName()}, RTI Real Estate` + (S.cfg.cardLink === false ? '' : '\n' + (CARD_LBL[L] || CARD_LBL.en) + CARD_URL);
+}
+function projList(s){
+  const q = norm(s.q || ''), maxP = {'1': 1e6, '2': 2e6, '5': 5e6}[s.budget] || 0, minP = s.budget === '5+' ? 5e6 : s.budget === '5' ? 2e6 : s.budget === '2' ? 1e6 : 0;
+  return (S.proj || []).filter(p => (!q || norm([p.name, p.area, p.dev, p.region].join(' ')).includes(q))
+    && (!s.budget || (p.min && p.min >= minP && (!maxP || p.min <= maxP)))
+    && (!s.beds || (p.beds || []).includes(+s.beds) || (s.beds === '4' && (p.beds || []).some(b => b >= 4)))
+    && (!s.post || p.post)).sort((a, b) => (s.ids || []).includes(b.id) - (s.ids || []).includes(a.id) || (a.min || 9e12) - (b.min || 9e12));
+}
+function projSheet(l, s){
+  const L = s.lang || l.lang || 'en', sel = s.ids || [], list = projList(s), shown = list.slice(0, 60);
+  return head('Send projects to ' + esc((l.name || '').split(' ')[0]), `Pick 1–3 · ${list.length} match · updated ${S.projAt ? ago(S.projAt) : '–'}`)
+    + `<div class="form"><input class="input" id="proj_q" type="search" placeholder="Search project, area or developer…" value="${esc(s.q || '')}" autocomplete="off">
+      ${chipGroup('budget', [['','Any price'],['1','< 1M'],['2','1–2M'],['5','2–5M'],['5+','5M+']], s.budget || '', 'projF')}
+      ${chipGroup('beds', [['','Any size'],['0','Studio'],['1','1 BR'],['2','2 BR'],['3','3 BR'],['4','4+ BR']], s.beds || '', 'projF')}
+      ${chipGroup('post', [['','All plans'],['1','Post-handover plan']], s.post || '', 'projF')}
+      ${chipGroup('plang', LANGS, L, 'projLang')}</div>
+    ${sel.length ? `<div class="card form"><b>Your message (${sel.length} project${sel.length > 1 ? 's' : ''})</b><textarea class="input" id="proj_msg" rows="9" dir="${L === 'ar' ? 'rtl' : 'ltr'}">${esc(s.msg || projMessage(l, sel, L))}</textarea>${sendRow(l, s.msg || projMessage(l, sel, L), L)}</div>` : ''}
+    <div class="list">${shown.map(p => `<button class="row prow ${sel.includes(p.id) ? 'on' : ''}" data-act="projPick" data-id="${l.id}" data-v="${esc(p.id)}">
+      ${p.img ? `<img src="${esc(p.img)}" alt="" loading="lazy">` : '<span class="av">🏗</span>'}
+      <span class="rmain"><span class="rname">${sel.includes(p.id) ? '✓ ' : ''}${esc(p.name)}</span>
+      <span class="rsub">${esc([p.area, p.dev].filter(Boolean).join(' · '))}<br>${esc([p.min ? 'from ' + money(p.min, p.cur) : '', bedTxt(p.beds) ? bedTxt(p.beds) + ' BR' : '', p.done ? 'handover ' + qtr(p.done) : '', p.plan].filter(Boolean).join(' · '))}</span></span></button>`).join('')}
+      ${list.length > 60 ? `<div class="hint">Showing 60 of ${list.length} – search to narrow down.</div>` : ''}</div>`;
+}
 /* Write your own message → AI gives improved versions in the chosen language → send each by WhatsApp, SMS or email */
 const LANG_NAME = {en: 'English', sv: 'Swedish', ar: 'Arabic', ru: 'Russian'};
-function ownBox(l, s, L){
+function sendRow(l, txt, L){
   const sig = mailSig() ? '\n\n' + mailSig() : '';
-  const send = txt => `<div class="actions">
+  return `<div class="actions">
       <a class="btn btn-ghost" href="${esc(waLink(l, txt))}" ${waTarget()} data-act="waSent" data-ch="wa" data-id="${l.id}" data-k="own">WhatsApp</a>
       ${digits(l.phone) ? `<a class="btn btn-ghost" href="${esc(smsLink(l, txt))}" ${EXT} data-act="waSent" data-ch="sms" data-id="${l.id}" data-k="own" data-txt="${esc(txt)}">SMS</a>` : ''}
       ${l.email ? `<a class="btn btn-ghost" href="${esc(mailLink(l, fill(subjFor(L, 'followup'), {...l, lang: L}), txt + sig))}" ${mailTarget()} data-act="waSent" data-ch="email" data-id="${l.id}" data-k="own">Email</a>` : ''}
       <button class="copyb" data-act="copyTpl" data-v="${esc(txt)}">Copy</button></div>`;
-  return `<div class="card form own"><b>✍️ Write your own – AI improves it</b>
+}
+function ownBox(l, s, L){
+  const send = txt => sendRow(l, txt, L);
+  return `${(S.proj || []).length ? `<button class="btn btn-ghost btn-big" data-act="projOpen" data-id="${l.id}">🏗 Send 1–3 projects (${S.proj.length} from Reelly)</button>` : ''}<div class="card form own"><b>✍️ Write your own – AI improves it</b>
     <textarea class="input" id="own_msg" rows="4" placeholder="Write what you want to say, in any language – e.g. tell him the new Palm project is out and ask for a call">${esc(s.own || '')}</textarea>
     <div class="actions"><button class="btn btn-primary" data-act="aiImprove" data-id="${l.id}">✨ Improve my message (${esc(LANGS.find(x => x[0] === L)[1])})</button></div>
     ${s.impBusy ? '<div class="hint">Improving…</div>' : ''}${s.impErr ? `<div class="banner">${esc(s.impErr)}</div>` : ''}
@@ -1491,6 +1534,12 @@ function viewMsgs(){
     <button class="btn btn-ghost" data-act="signOut">Sign out</button>
   </div>
   <div class="card form">
+    <h3>Projects from Reelly</h3>
+    <p class="hint" style="margin:0">Paste your Reelly API key (from Reelly's sales team or your account manager). The background service then loads the UAE off-plan projects every day, and in a lead's Message screen you can pick 1–3 projects and send them by WhatsApp, SMS or email. The key stays in your account, never in the app's code.</p>
+    <div class="field"><label for="reelly_key">Reelly API key</label><input class="input" id="reelly_key" type="password" autocomplete="off" value="${esc((S.priv || {}).reellyKey || '')}"></div>
+    <div class="hint">${S.sync && S.sync.projRun ? `Last update ${ago(S.sync.projRun)}: ${S.sync.projCount || 0} projects${S.sync.projError ? ' – problem: ' + esc(S.sync.projError) : ' ✓'}` : ((S.priv || {}).reellyKey ? 'Waiting for the first update (about 10 minutes)…' : 'No key yet.')}</div>
+  </div>
+  <div class="card form">
     <h3>SMS with textbee</h3>
     <p class="hint" style="margin:0">Send SMS straight from Lead Desk through your Android phone (textbee.dev): install the textbee app on the phone, then copy the API key and the device ID from the textbee dashboard here. Kept in your account, works on phone and laptop.</p>
     <div class="field"><label for="tb_key">textbee API key</label><input class="input" id="tb_key" type="password" autocomplete="off" value="${esc((S.priv || {}).textbeeKey || '')}"></div>
@@ -1594,6 +1643,7 @@ function contactBar(l){
   <div class="contact2">
     ${canSms ? `<button class="cbtn sm sms" data-act="waSheet" data-ch="sms" data-id="${l.id}">${IC.msg}SMS</button>` : `<span class="cbtn sm off">${IC.msg}No SMS</span>`}
     <a class="cbtn sm botim" href="${botimLink()}" ${botimTarget()} data-act="botimOpen" data-v="+${esc(d)}" data-id="${l.id}">${IC.call}Botim</a>
+    <button class="cbtn sm" data-act="projOpen" data-id="${l.id}">🏗 Pitch projects</button>
     ${l.email ? `<button class="cbtn sm mail" data-act="waSheet" data-ch="email" data-id="${l.id}">${IC.mail}Email</button>`
       : `<button class="cbtn sm mail none" data-act="addEmail" data-id="${l.id}">${IC.mail}Add email</button>`}
   </div>
@@ -1699,6 +1749,7 @@ function renderSheet(){
   }
   if (!l) { closeSheet(); return; }
   let h = '';
+  if (s.type === 'projects') { box.innerHTML = projSheet(l, s); return; }
   if (s.type === 'reqfields') {
     const have = l.bxReq || {};
     h = head('Bitrix needs these for ' + esc(STAGE[s.stage] || 'Contacted'), esc(l.name || '') + ' – answer once, they are sent to Bitrix with the stage.')
@@ -1893,7 +1944,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '65';
+const APP_VER = '66';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1910,6 +1961,14 @@ document.addEventListener('click', e => {
     case 'dictate': dictate(t, id); break;
     case 'aiTest': { S.aiTest = 'Testing…'; renderView(); write('config/private', {geminiKey: aiKey()}, 'merge');
       gemini('Reply with exactly: OK').then(a => { S.aiTest = '✓ Gemini works – the AI features and the morning coach can use it now (' + String(a).trim().slice(0, 20) + ')'; renderView(); }, er => { S.aiTest = '✗ ' + (er.message || er.code); renderView(); }); break; }
+    case 'projOpen': { if (!(S.proj || []).length) { toast((S.priv || {}).reellyKey ? 'Projects are loading – they arrive within about 10 minutes' : 'Add your Reelly API key in Settings → Projects from Reelly', 7000); break; }
+      const l = S.leads.get(id), b = l.budget || '', pre = /< ?1M/.test(b) ? '1' : /1–2M/.test(b) ? '2' : /2–5M/.test(b) ? '5' : /5M/.test(b) ? '5+' : '';
+      openSheet('projects', id, {ids: [], lang: (S.sheet && S.sheet.lang) || l.lang || 'en', budget: pre}); break; }
+    case 'projPick': { const sh = S.sheet, v = t.dataset.v, ids = sh.ids || [];
+      if (ids.includes(v)) sh.ids = ids.filter(x => x !== v); else if (ids.length >= 3) { toast('Up to 3 projects per message'); break; } else sh.ids = [...ids, v];
+      sh.msg = ''; renderSheet(); break; }
+    case 'projF': { const sh = S.sheet; sh[t.dataset.g] = t.dataset.v; renderSheet(); break; }
+    case 'projLang': { const sh = S.sheet; sh.lang = t.dataset.v; sh.msg = ''; renderSheet(); break; }
     case 'aiImprove': { const l = S.leads.get(id), sh = S.sheet, box = $('#own_msg'), text = (box && box.value || '').trim();
       if (!text) { toast('Write your message first'); if (box) box.focus(); break; }
       sh.own = text; sh.imp = []; sh.impBusy = true; sh.impErr = ''; renderSheet();
@@ -2145,6 +2204,7 @@ document.addEventListener('click', e => {
 
 document.addEventListener('input', e => {
   const t = e.target;
+  if (t.id === 'proj_q' && S.sheet && S.sheet.type === 'projects') { S.sheet.q = t.value; const pos = t.selectionStart; renderSheet(); const n = $('#proj_q'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} } return; }
   if (t.id === 'q') { const was = S.q.trim(); S.q = t.value;
     if (!was && S.q.trim()) { S.stageBeforeSearch = S.stageF; S.stageF = 'all'; }                  /* search everything, then narrow with the chips */
     else if (was && !S.q.trim() && S.stageBeforeSearch) { S.stageF = S.stageBeforeSearch; S.stageBeforeSearch = null; }
@@ -2154,6 +2214,8 @@ document.addEventListener('input', e => {
   if (t.id === 'zoho_host') { try { localStorage.setItem('zohoHost', t.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') || 'mail.zoho.com'); } catch (e) {} return; }
   if (t.id === 'ai_q') { S.aiQ = t.value; return; }
   if (t.id === 'own_msg' && S.sheet) { S.sheet.own = t.value; return; }
+  if (t.id === 'proj_msg' && S.sheet) { S.sheet.msg = t.value; renderSheet(); return; }
+  if (t.id === 'reelly_key') { write('config/private', {reellyKey: t.value.trim()}, 'merge'); S.priv = {...(S.priv || {}), reellyKey: t.value.trim()}; toast('Saved – projects arrive within about 10 minutes'); renderView(); return; }
   if (t.id === 'tb_key' || t.id === 'tb_dev') { write('config/private', {[t.id === 'tb_key' ? 'textbeeKey' : 'textbeeDevice']: t.value.trim()}, 'merge'); S.priv = {...(S.priv || {}), [t.id === 'tb_key' ? 'textbeeKey' : 'textbeeDevice']: t.value.trim()}; toast('Saved'); renderView(); return; }
   if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {} if (aiProvider(k) === 'gemini') write('config/private', {geminiKey: k}, 'merge');
     const st = $('#ai_state'); if (st) st.textContent = aiProvider(k) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(k) === 'claude' ? '✓ Claude key saved – photos are read with AI' : k ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone.'; S.aiTest = ''; renderView(); return; }
