@@ -4,7 +4,7 @@
 const H = 3600e3, D = 24 * H;
 const dubai = t => new Date(t + 4 * H);
 const first = n => String(n || '').trim().split(/\s+/)[0] || 'lead';
-const OPEN = l => !['closed', 'lost', 'junk', 'junkbx', 'later', 'pool', 'workshop'].includes(l.stage);
+const OPEN = l => !['closed', 'lost', 'junk', 'junkbx', 'cold', 'later', 'pool', 'workshop'].includes(l.stage);
 const HOT = l => !!l.hot || ['hot', 'meeting', 'nego'].includes(l.stage);
 const CALLS = new Set(['noanswer', 'talk', 'declined', 'badnum', 'meeting']);
 

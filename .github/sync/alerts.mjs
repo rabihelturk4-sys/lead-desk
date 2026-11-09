@@ -12,7 +12,7 @@ const dubai = t => new Date(t + 4 * H);
 const dubaiDay = t => dubai(t).toISOString().slice(0, 10);
 const hhmm = t => dubai(t).toISOString().slice(11, 16);
 const stamp = t => { const d = dubai(t), z = n => String(n).padStart(2, '0'); return `${z(d.getUTCDate())}-${z(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${z(d.getUTCHours())},${z(d.getUTCMinutes())}`; };
-const CLOSED = ['closed', 'lost', 'junk', 'junkbx', 'later', 'pool', 'workshop'];
+const CLOSED = ['closed', 'lost', 'junk', 'junkbx', 'cold', 'later', 'pool', 'workshop'];
 const junkPatch = l => ({stage: 'junkbx', prevStage: l.stage, hot: false, nextAt: null, fresh: false});
 const NAMES = {new: 'New', noanswer: 'No answer', talking: 'Contacted', hot: 'HOT', meeting: 'Meeting booked', nego: 'Negotiation', later: 'Buy later', pool: 'Pool', workshop: 'Workshop', closed: 'Closed', lost: 'Lost'};
 export const isOpen = l => !CLOSED.includes(l.stage);
@@ -200,7 +200,7 @@ async function main(){
           let start = 0, n = 0;
           for (;;) {
             const j = await bx(hook, 'crm.lead.list', {filter: {ASSIGNED_BY_ID: me, STATUS_ID: [...failed]}, select: ['ID'], order: {ID: 'ASC'}, start});
-            for (const b of j.result || []) { const l = byBx.get(String(b.ID)); if (l && l.stage !== 'junkbx') { await leadsRef.doc(l.id).update({...junkPatch(l), history: hist('Junked in Bitrix – removed from your calling lists')}); l.stage = 'junkbx'; n++; } }
+            for (const b of j.result || []) { const l = byBx.get(String(b.ID)); if (l && !['junkbx', 'cold'].includes(l.stage)) { await leadsRef.doc(l.id).update({...junkPatch(l), history: hist('Junked in Bitrix – removed from your calling lists')}); l.stage = 'junkbx'; n++; } }
             if (!j.next) break; start = j.next;
           }
           set.junkScanDay = day; if (n) notes.push(n + ' junked leads moved out of the lists');
@@ -211,7 +211,7 @@ async function main(){
           const fits = Object.keys(map).filter(k => k !== 'junk' && map[k] === b.STATUS_ID);
           const bxDate = cfg.bxDateField && b[cfg.bxDateField] ? Date.parse(b[cfg.bxDateField]) : NaN, dated = bxDate > now;
           const fresh = (l.stageAt && l.stageAt > now - 2 * H) || l.bxReqPending;                /* you changed it in Lead Desk just now: Lead Desk wins */
-          if (failed.has(b.STATUS_ID)) { if (l.stage !== 'junkbx') { Object.assign(patch, junkPatch(l)); notesHere.push('Junked in Bitrix – removed from your calling lists'); } }
+          if (failed.has(b.STATUS_ID)) { if (!['junkbx', 'cold'].includes(l.stage)) { Object.assign(patch, junkPatch(l)); notesHere.push('Junked in Bitrix – removed from your calling lists'); } }
           else if (fits.length && !fits.includes(l.stage) && !fresh) { patch.stage = fits[0]; notesHere.push('Stage changed in Bitrix → ' + (NAMES[fits[0]] || fits[0]));
             if (['later', 'pool'].includes(fits[0])) {                 /* use the next contact date from Bitrix, or Lead Desk asks for one */
               Object.assign(patch, {hot: false, needDate: !dated, nextAt: dated ? bxDate : null});

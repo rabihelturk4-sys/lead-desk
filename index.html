@@ -268,7 +268,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const H = 3600e3, D = 24 * H;
 
-const STAGES = [['new','New'],['noanswer','No answer'],['talking','Contacted'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost']];
+const STAGES = [['new','New'],['noanswer','No answer'],['talking','Contacted'],['hot','HOT'],['meeting','Meeting booked'],['nego','Negotiation'],['later','Buy later'],['pool','Pool'],['workshop','Workshop'],['closed','Closed'],['lost','Lost'],['cold','Junk – send updates']];
 /* Best call windows in Dubai time, by the lead's dialling code */
 const WIN_GROUPS = [
   [['971','968','974','965','973','966','962','961','20'], [[11,13],[16,19]], 'Gulf'],
@@ -516,7 +516,7 @@ function when(t){ if (!t) return '—'; const d = new Date(t), n = new Date(); c
   const y = new Date(n); y.setDate(n.getDate() - 1); if (d.toDateString() === y.toDateString()) return 'Yesterday ' + tm;
   return d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'}) + ' ' + tm; }
 const endToday = () => { const d = new Date(); d.setHours(23,59,59,999); return d.getTime(); };
-const isOpen = l => !['closed','lost','junk','junkbx','later','pool','workshop'].includes(l.stage);
+const isOpen = l => !['closed','lost','junk','junkbx','cold','later','pool','workshop'].includes(l.stage);
 /* How this lead may be contacted (a contact preference, not a stage) */
 const WAYS = [['any','Calls + WhatsApp'],['wa','WhatsApp only'],['call','Calls only'],['sms','SMS only']];
 const WAY = Object.fromEntries(WAYS);
@@ -933,7 +933,8 @@ function setCountryCode(id, code){
 }
 function bxAfterPatch(l, p, hist, before){
   if (!bxOn() || !l) return;
-  const map = S.cfg.bxMap || {};
+  let map = S.cfg.bxMap || {};
+  if (p.stage === 'cold' && !map.cold && map.junk) map = {...map, cold: map.junk};     /* Junk + updates = Junk in Bitrix */
   const moved = p.stage && !['junk', 'junkbx'].includes(p.stage) && map[p.stage] && (p.stage !== (before && before.stage) || (['later','pool'].includes(p.stage) && p.nextAt));
   if (moved && REQ_STAGES.includes(p.stage) && bxId(l) && reqMissing(l).length) {          /* Bitrix would refuse the move: ask first */
     S.leads.set(l.id, {...S.leads.get(l.id), bxReqPending: p.stage}); write('leads/' + l.id, {bxReqPending: p.stage});
@@ -1200,7 +1201,7 @@ function viewToday(){
   ${section('due', 'Buy later & Pool – pick a date to contact again', noDate, '')}
   ${section('due', 'Buy later & Pool – time to contact again', laterBack, '')}
   ${(() => { const n = all.filter(l => l.stage === 'junkbx').length; return n ? `<section><button class="btn btn-ghost" data-act="openJunk">🗑 Junked leads · ${n}</button></section>` : ''; })()}
-  ${(() => { const n = waMonthlyDue().length; return n ? `<section><button class="btn btn-ghost btn-big" data-act="startWaRun">📣 Monthly WhatsApp to Pool &amp; Buy later · ${n} lead${n > 1 ? 's' : ''}</button></section>` : ''; })()}
+  ${(() => { const n = waMonthlyDue().length; return n ? `<section><button class="btn btn-ghost btn-big" data-act="startWaRun">📣 Updates to Pool, Buy later &amp; Junk+updates · ${n} lead${n > 1 ? 's' : ''}</button></section>` : ''; })()}
   ${all.length ? '' : `<div class="empty">No leads yet. Tap <b>Add lead</b> below to add your first one. It takes about 10 seconds.</div>`}`;
 }
 function viewLeadsShell(){
@@ -1568,7 +1569,7 @@ function viewMsgs(){
     <button class="btn btn-ghost" data-act="bxTest">Test connection and load my Bitrix stages</button>
     <div id="bx_res">${S.bxMsg ? S.bxMsg : ''}</div>
     ${S.bxStatuses ? `<div class="lbl">Match the stages</div><p class="hint" style="margin:0">When you move a lead in Lead Desk, Bitrix moves it to the stage you pick here. "Don't change" leaves Bitrix as it is.</p>
-      ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost','junk'].map(k => `<div class="field"><label for="bxm_${k}">${k === 'junk' ? 'Junk (lead is deleted from Lead Desk) – pick the reason, e.g. Wrong details' : esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
+      ${['new','noanswer','talking','hot','meeting','nego','workshop','pool','later','closed','lost','cold','junk'].map(k => `<div class="field"><label for="bxm_${k}">${k === 'junk' ? 'Junk (lead is deleted from Lead Desk) – pick the reason, e.g. Wrong details' : esc(STAGE[k])}</label><select class="input" id="bxm_${k}" data-bxmap="${k}"><option value="">Don't change</option>${S.bxStatuses.map(st => `<option value="${esc(st.STATUS_ID)}" ${(S.cfg.bxMap || {})[k] === st.STATUS_ID ? 'selected' : ''}>${esc(st.NAME)}</option>`).join('')}</select></div>`).join('')}` : ''}
     ${S.bxListFields ? `<div class="field"><span class="lbl">Questions Bitrix requires before Contacted (Lead Desk asks them once per lead and sends the answers with the stage)</span>
       <div class="chips">${S.bxListFields.map(x => `<button type="button" class="chip ${(S.cfg.bxReq || []).some(q => q.id === x.id) ? 'on' : ''}" data-act="bxReqToggle" data-v="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div></div>`
       : (S.cfg.bxReq && S.cfg.bxReq.length ? `<div class="hint">Before Contacted, Lead Desk asks: ${esc(S.cfg.bxReq.map(q => q.name).join(', '))}.</div>` : '')}
@@ -1772,7 +1773,7 @@ function outcomeBar(l){
   </div>
   ${nextBtn}
   <div class="lbl">Move to</div>
-  <div class="movebar">${[['talking','Contacted'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later'],['junk','Junk']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
+  <div class="movebar">${[['talking','Contacted'],['noanswer','No answer'],['workshop','Workshop'],['pool','Pool'],['later','Buy later'],['cold','Junk + updates'],['junk','Junk']].map(([k, t]) => `<button class="chip ${l.stage === k ? 'on' : ''}" data-act="moveTo" data-k="${k}" data-id="${l.id}">${t}</button>`).join('')}</div>
 `;
 }
 
@@ -1979,8 +1980,8 @@ function meetingIcs(l){
    After 6 updates with no reaction it slows down to every 3 months; any contact after an update resets that. */
 const hasWaChat = l => (l.history || []).some(h => h.k === 'wa' && !/Monthly WhatsApp/.test(h.txt || ''));
 const monthlyByWa = l => digits(l.phone).length >= 7 && !l.waUnsub && !l.unsub && (!l.email || hasWaChat(l));   /* "stop" by email stops WhatsApp updates too */
-const monthlyGap = l => (l.monthlyN || 0) >= 6 && !((l.lastAt || 0) > (l.monthlyAt || 0)) ? 90*D : 30*D;
-const monthlyDue = (l, now = Date.now()) => ['pool','later'].includes(l.stage) && (l.lastAt || 0) < now - 7*D && now - (l.monthlyAt || 0) >= monthlyGap(l);
+const monthlyGap = l => l.stage === 'cold' ? 60*D : (l.monthlyN || 0) >= 6 && !((l.lastAt || 0) > (l.monthlyAt || 0)) ? 90*D : 30*D;   /* Junk + updates: every 2 months */
+const monthlyDue = (l, now = Date.now()) => ['pool','later','cold'].includes(l.stage) && (l.lastAt || 0) < now - 7*D && now - (l.monthlyAt || 0) >= monthlyGap(l);
 const monthlyMark = (l, now = Date.now()) => ({monthlyAt: now, monthlyN: (l.lastAt || 0) > (l.monthlyAt || 0) ? 1 : (l.monthlyN || 0) + 1});
 const waMonthlyDue = () => [...S.leads.values()].filter(l => monthlyDue(l) && monthlyByWa(l)).sort((a, b) => (a.lastAt || 0) - (b.lastAt || 0)).map(l => l.id);
 function startWaRun(){ const q = waMonthlyDue(); if (!q.length) { toast('Everyone got this month\'s WhatsApp'); return; } S.waRun = {q, i: 0, sent: 0}; openSheet('warun', q[0]); }
@@ -2025,7 +2026,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '70';
+const APP_VER = '71';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -2145,12 +2146,12 @@ document.addEventListener('click', e => {
       if (k === 'junk') { if (!doJunk(id)) break;
         if (S.focus) advance('Junked'); else { closeSheet(); toast('Junked – find it under Leads → 🗑 Junked'); render(); } break; }
       const p = {stage: k};
-      if (k === 'pool' || k === 'workshop' || k === 'junk') { p.hot = false; p.nextAt = null; p.fresh = false; }
+      if (k === 'pool' || k === 'workshop' || k === 'junk' || k === 'cold') { p.hot = false; p.nextAt = null; p.fresh = false; }
       if (k === 'later') { p.hot = false; p.nextAt = at10(30); }
       if (k === 'noanswer') p.nextAt = nextWindowAt(l);
       if (k === 'talking' && (!l.nextAt || l.nextAt < Date.now())) p.nextAt = at10(1);
       patchLead(id, p, {k:'stage', txt:'Moved to ' + STAGE[k]}, {quiet: true});
-      if (S.focus && (k === 'pool' || k === 'later' || k === 'workshop' || k === 'junk')) advance('Moved to ' + STAGE[k]);
+      if (S.focus && (k === 'pool' || k === 'later' || k === 'workshop' || k === 'junk' || k === 'cold')) advance('Moved to ' + STAGE[k]);
       else { toast('Moved to ' + STAGE[k] + (p.nextAt ? ' · next ' + when(p.nextAt) : '')); render(); }
       break; }
     case 'setWay': { const l = S.leads.get(id), k = t.dataset.k; if (contactWay(l) === k) break;
@@ -2210,7 +2211,7 @@ document.addEventListener('click', e => {
     case 'nextAfterMeet': advance('Meeting saved'); break;
     case 'setField': { const l = S.leads.get(id), g = t.dataset.g, v = t.dataset.v;
       if (g === 'stage' && (v === 'later' || v === 'pool')) { openSheet('laterdate', id, {stage: v}); break; }
-      if (g === 'stage') patchLead(id, {stage: v, hot: ['hot','meeting','nego'].includes(v) ? true : (['lost','closed','junk'].includes(v) ? false : l.hot), ...(v === 'closed' || v === 'junk' ? {nextAt: null, fresh: false} : {})}, {k:'stage', txt:'Stage → ' + STAGE[v]});
+      if (g === 'stage') patchLead(id, {stage: v, hot: ['hot','meeting','nego'].includes(v) ? true : (['lost','closed','junk','cold'].includes(v) ? false : l.hot), ...(v === 'closed' || v === 'junk' ? {nextAt: null, fresh: false} : {})}, {k:'stage', txt:'Stage → ' + STAGE[v]});
       else patchLead(id, {[g]: l[g] === v && g !== 'lang' ? null : v}); break; }
     case 'setNext': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); toast('Follow-up set'); break;
     case 'askDel': S.confirmDel = true; renderSheet(); break;
