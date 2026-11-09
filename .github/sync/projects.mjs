@@ -65,6 +65,7 @@ export async function syncProjects({fs, root, sync, set, notes, now}){
     while (JSON.stringify(items).length > 900000) items = items.slice(0, Math.floor(items.length * 0.9));   /* stay within one database document */
     await ref.set({at: now, items});
     set.projRun = now; set.projCount = items.length; set.projError = '';
-    notes.push(`Reelly: ${items.length} projects, ${todo.length} detailed`);
+    const has = k => items.filter(p => Array.isArray(p[k]) ? p[k].length : p[k]).length;
+    notes.push(`Reelly: ${items.length} projects, ${todo.length} detailed (with price ${has('min')}, area ${has('area')}, handover ${has('done')}, plan ${has('plan')}, bedrooms ${has('beds')}, image ${has('img')})`);
   } catch (e) { set.projRun = now; set.projError = String(e.message || e); notes.push('Reelly problem: ' + set.projError); }
 }
