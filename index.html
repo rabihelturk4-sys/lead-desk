@@ -1231,6 +1231,27 @@ async function aiDrafts(l, ch){
   const j = await gemini(`${AI_ME()}\n\n${leadBrief(l)}\n\nWrite 3 different ${kind} options to (re)start the conversation with this client, each with a different angle (e.g. value/offer, a simple question, a personal touch). Use the client's language. Reply only JSON: {"options":[{"angle":"","text":""}]}`, true);
   return (j.options || []).slice(0, 3).map(o => ({angle: String(o.angle || '').slice(0, 40), text: String(o.text || '').trim()})).filter(o => o.text);
 }
+/* Write your own message → AI gives improved versions in the chosen language → send each by WhatsApp, SMS or email */
+const LANG_NAME = {en: 'English', sv: 'Swedish', ar: 'Arabic', ru: 'Russian'};
+function ownBox(l, s, L){
+  const sig = mailSig() ? '\n\n' + mailSig() : '';
+  const send = txt => `<div class="actions">
+      <a class="btn btn-ghost" href="${esc(waLink(l, txt))}" ${waTarget()} data-act="waSent" data-ch="wa" data-id="${l.id}" data-k="own">WhatsApp</a>
+      ${digits(l.phone) ? `<a class="btn btn-ghost" href="${esc(smsLink(l, txt))}" ${EXT} data-act="waSent" data-ch="sms" data-id="${l.id}" data-k="own" data-txt="${esc(txt)}">SMS</a>` : ''}
+      ${l.email ? `<a class="btn btn-ghost" href="${esc(mailLink(l, fill(subjFor(L, 'followup'), {...l, lang: L}), txt + sig))}" ${mailTarget()} data-act="waSent" data-ch="email" data-id="${l.id}" data-k="own">Email</a>` : ''}
+      <button class="copyb" data-act="copyTpl" data-v="${esc(txt)}">Copy</button></div>`;
+  return `<div class="card form own"><b>✍️ Write your own – AI improves it</b>
+    <textarea class="input" id="own_msg" rows="4" placeholder="Write what you want to say, in any language – e.g. tell him the new Palm project is out and ask for a call">${esc(s.own || '')}</textarea>
+    <div class="actions"><button class="btn btn-primary" data-act="aiImprove" data-id="${l.id}">✨ Improve my message (${esc(LANGS.find(x => x[0] === L)[1])})</button></div>
+    ${s.impBusy ? '<div class="hint">Improving…</div>' : ''}${s.impErr ? `<div class="banner">${esc(s.impErr)}</div>` : ''}
+    ${(s.imp || []).map(o => `<div class="tplwrap"><div class="tpl" dir="${L === 'ar' ? 'rtl' : 'ltr'}"><b>✨ ${esc(o.label)}</b><p>${esc(o.text)}</p></div>${send(o.text)}</div>`).join('')}
+    ${s.own && !(s.imp || []).length && !s.impBusy ? `<div class="hint">Or send it as written:</div>${send(s.own)}` : ''}
+  </div>`;
+}
+async function aiImprove(l, text, L){
+  const j = await gemini(`${AI_ME()}\n\n${leadBrief({...l, lang: L})}\n\n${myName()} wrote this draft message to the client:\n"""${text}"""\n\nImprove it. Keep the meaning, facts and any numbers exactly; do not add prices, projects or promises that are not in the draft. Write in ${LANG_NAME[L] || 'English'} and address the client by first name. Give 4 options: "Polished" (same length, clearer and more professional), "Short" (max 300 characters, fits an SMS), "Warm" (friendlier and more personal), "Persuasive" (with a soft call to action). Reply only JSON: {"options":[{"label":"","text":""}]}`, true);
+  return (j.options || []).slice(0, 4).map(o => ({label: String(o.label || 'Option').slice(0, 30), text: String(o.text || '').trim()})).filter(o => o.text);
+}
 const customLink = (ch, l, txt) => ch === 'sms' ? smsLink(l, txt) : ch === 'email' ? mailLink(l, subjFor(l.lang || 'en', 'followup'), txt) : waLink(l, txt);
 /* SMS through textbee (textbee.dev): your Android phone sends the SMS, no app to open. Key and device ID are kept in your account.
    If the browser cannot reach textbee directly, the background service sends it within a few minutes. */
@@ -1248,10 +1269,10 @@ async function tbSend(phone, text){
     return 'queued';
   }
 }
-function smsViaTextbee(l, k, after){
-  const L = (S.sheet && S.sheet.lang) || l.lang || 'en', text = k === 'own' ? prompt('SMS to ' + l.name + ':', '') : tplText(L, smsKey(L, k), {...l, lang: L});
+function smsViaTextbee(l, k, after, ready){
+  const L = (S.sheet && S.sheet.lang) || l.lang || 'en', text = ready || (k === 'own' ? prompt('SMS to ' + l.name + ':', '') : tplText(L, smsKey(L, k), {...l, lang: L}));
   if (!text || !text.trim()) return;
-  if (k !== 'own' && !confirm('Send this SMS to ' + l.name + ' (+' + digits(l.phone) + ') now with textbee?\n\n' + text.slice(0, 300) + (text.length > 300 ? '…' : ''))) return;
+  if ((ready || k !== 'own') && !confirm('Send this SMS to ' + l.name + ' (+' + digits(l.phone) + ') now with textbee?\n\n' + text.slice(0, 300) + (text.length > 300 ? '…' : ''))) return;
   toast('Sending SMS…');
   tbSend(l.phone, text).then(how => { toast(how === 'sent' ? 'SMS sent ✓' : 'SMS queued – it goes out within a few minutes'); after && after(); }, e => toast('SMS not sent: ' + (e.message || e.code), 9000));
 }
@@ -1732,7 +1753,7 @@ function renderSheet(){
     const appName = ch === 'wa' ? 'WhatsApp' : ch === 'sms' ? 'your SMS app' : ch === 'botim' ? 'Botim (the text and number are copied – paste them there)' : ({zoho: 'Zoho Mail', gmail: 'Gmail', app: 'your email app'})[mailMode()];
     h = head('Send a message', `To ${esc(l.name)} · tap a message to open ${appName} with it ready to send`)
       + chipGroup('ch', [['wa','WhatsApp'],['sms','SMS'],['botim','Botim'],['email','Email']], ch, 'msgCh')
-      + chipGroup('waLang', LANGS, L, 'waLang');
+      + chipGroup('waLang', LANGS, L, 'waLang') + ownBox(l, s, L);
     if (ch === 'email' && !l.email) {
       h += `<div class="card"><div class="field"><label for="e_email2">No email saved for ${esc(l.name)}. Add it here:</label><input class="input" id="e_email2" type="email" inputmode="email" data-edit="email" data-id="${l.id}" placeholder="name@example.com" autocomplete="off"></div><button class="btn btn-primary" data-act="noop">Save email</button></div>`;
     } else {
@@ -1871,7 +1892,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '63';
+const APP_VER = '64';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1886,6 +1907,10 @@ document.addEventListener('click', e => {
     case 'closeSheetForce': closeSheet(); render(); break;
     case 'nextPick': patchLead(id, {nextAt: NEXT_FN[t.dataset.v]()}, {k:'note', txt:'Follow-up set: ' + t.textContent}); closeSheet(); toast('Next follow-up ' + when(S.leads.get(id).nextAt)); render(); break;
     case 'dictate': dictate(t, id); break;
+    case 'aiImprove': { const l = S.leads.get(id), sh = S.sheet, box = $('#own_msg'), text = (box && box.value || '').trim();
+      if (!text) { toast('Write your message first'); if (box) box.focus(); break; }
+      sh.own = text; sh.imp = []; sh.impBusy = true; sh.impErr = ''; renderSheet();
+      aiImprove(l, text, sh.lang || l.lang || 'en').then(o => { if (S.sheet === sh) { sh.imp = o; sh.impBusy = false; renderSheet(); } }, er => { if (S.sheet === sh) { sh.impBusy = false; sh.impErr = er.message || er.code; renderSheet(); } }); break; }
     case 'aiDraft': { const l = S.leads.get(id), sh = S.sheet; sh.aiBusy = true; sh.aiErr = ''; renderSheet();
       aiDrafts({...l, lang: sh.lang || l.lang}, t.dataset.ch).then(ai => { if (S.sheet === sh) { sh.ai = ai; sh.aiBusy = false; renderSheet(); } }, e => { if (S.sheet === sh) { sh.aiBusy = false; sh.aiErr = e.message || e.code; renderSheet(); } }); break; }
     case 'aiAsk': { const q = ($('#ai_q') || {}).value || ''; if (!q.trim()) { toast('Write your question'); break; } S.aiAns = 'Thinking…'; renderView();
@@ -1992,7 +2017,7 @@ document.addEventListener('click', e => {
     case 'lost': doLost(id); S.focus ? advance('Marked not interested') : (toast('Marked not interested'), render()); break;
     case 'hot': { const l = S.leads.get(id); const on = !l.hot; patchLead(id, {hot: on, stage: on && ['new','noanswer','talking'].includes(l.stage) ? 'hot' : (!on && l.stage === 'hot' ? 'talking' : l.stage), nextAt: on && (!l.nextAt || l.nextAt > at10(1)) ? at10(1) : l.nextAt}, {k:'stage', txt: on ? 'Marked HOT' : 'Removed HOT'}); toast(on ? 'Marked HOT · follow-up tomorrow' : 'HOT removed'); break; }
     case 'waSent': { const l = S.leads.get(id); const k = t.dataset.k;
-      if (t.dataset.ch === 'sms' && tbOn()) { e.preventDefault(); smsViaTextbee(l, k, () => { patchLead(id, {lastAt: Date.now(), nextAt: (!l.nextAt || l.nextAt <= Date.now() + H) ? at10(2) : l.nextAt}, {k: 'sms', txt: 'SMS sent (textbee): ' + (k === 'own' ? 'own message' : TPL_LABEL[k]), bxTxt: 'SMS sent'}, {quiet: true}); stay(id); }); break; }
+      if (t.dataset.ch === 'sms' && tbOn()) { e.preventDefault(); smsViaTextbee(l, k, () => { patchLead(id, {lastAt: Date.now(), nextAt: (!l.nextAt || l.nextAt <= Date.now() + H) ? at10(2) : l.nextAt}, {k: 'sms', txt: 'SMS sent (textbee): ' + (k === 'own' ? 'own message' : TPL_LABEL[k]), bxTxt: 'SMS sent'}, {quiet: true}); stay(id); }, t.dataset.txt); break; }
       if (t.dataset.ch === 'botim') { const L = (S.sheet && S.sheet.lang) || l.lang || 'en'; const txt = k === 'own' ? '' : tplText(L, k, {...l, lang: L});
         try { navigator.clipboard.writeText(txt || ('+' + digits(l.phone))).then(() => {}, () => {}); } catch (_) {}
         toast(txt ? 'Message copied – in Botim open the chat with +' + digits(l.phone) + ' and paste' : 'Number copied – paste it in Botim'); }
@@ -2125,6 +2150,7 @@ document.addEventListener('input', e => {
   if (t.id === 'bx_hook') { try { localStorage.setItem('bxHook', t.value.trim()); } catch (e) {} return; }
   if (t.id === 'zoho_host') { try { localStorage.setItem('zohoHost', t.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '') || 'mail.zoho.com'); } catch (e) {} return; }
   if (t.id === 'ai_q') { S.aiQ = t.value; return; }
+  if (t.id === 'own_msg' && S.sheet) { S.sheet.own = t.value; return; }
   if (t.id === 'tb_key' || t.id === 'tb_dev') { write('config/private', {[t.id === 'tb_key' ? 'textbeeKey' : 'textbeeDevice']: t.value.trim()}, 'merge'); S.priv = {...(S.priv || {}), [t.id === 'tb_key' ? 'textbeeKey' : 'textbeeDevice']: t.value.trim()}; toast('Saved'); renderView(); return; }
   if (t.id === 'ai_key') { const k = t.value.trim(); try { localStorage.setItem('aiKey', k); } catch (e) {} if (aiProvider(k) === 'gemini') write('config/private', {geminiKey: k}, 'merge');
     const st = $('#ai_state'); if (st) st.textContent = aiProvider(k) === 'gemini' ? '✓ Google Gemini key saved – photos are read with AI' : aiProvider(k) === 'claude' ? '✓ Claude key saved – photos are read with AI' : k ? 'This does not look like a Gemini or Claude key.' : 'No key – photos are read on the phone.'; return; }
