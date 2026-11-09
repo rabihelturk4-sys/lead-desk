@@ -1016,7 +1016,9 @@ function connect(root){
   }, e => { $('#sync').textContent = 'Sync error'; toast('Could not load leads: ' + e.message); }));
   unsubs.push(db.doc('config/main').onSnapshot(s => { S.cfg = s.exists ? JSON.parse(JSON.stringify(s.data())) : {}; S.cfgLoaded = true; softRender(); if (!pushTried) { pushTried = true; refreshPush();  setTimeout(queueMonthly, 5000); } }, () => {}));
   unsubs.push(db.doc('config/sync').onSnapshot(s => { S.sync = s.exists ? s.data() : null; }, () => {}));
-  unsubs.push(db.doc('config/projects').onSnapshot(s => { const d = s.exists ? s.data() : {}; S.proj = d.items || []; S.projAt = d.at || 0; }, () => {}));
+  const mixProj = () => { S.proj = [...(S.myProj || []), ...(S.projR || [])]; softRender(); };
+  unsubs.push(db.doc('config/projects').onSnapshot(s => { const d = s.exists ? s.data() : {}; S.projR = d.items || []; S.projAt = d.at || 0; mixProj(); }, () => {}));
+  unsubs.push(db.doc('config/myprojects').onSnapshot(s => { const d = s.exists ? s.data() : {}; S.myProj = d.items || []; mixProj(); }, () => {}));   /* projects you add yourself */
   unsubs.push(db.doc('config/coach').onSnapshot(s => { S.coach = s.exists ? s.data() : null; softRender(); }, () => {}));
   /* Bitrix link and the "update Bitrix" switch follow you to every device you sign in on (kept in your own account, users/{uid}/config/private) */
   unsubs.push(db.doc('config/private').onSnapshot(s => { const d = s.exists ? s.data() : {}; let ch = false; S.priv = d;
@@ -1278,11 +1280,36 @@ function projList(s){
     hand: (a, b) => (a.done || 9e15) - (b.done || 9e15)}[s.sort || 'new'];
   return out.sort((a, b) => (sel.includes(b.id) - sel.includes(a.id)) || by(a, b));
 }
+/* ---------- Your own projects: paste a launch message / brochure text, AI fills the fields, you check and save ---------- */
+const pNum = v => { const m = String(v || '').replace(/,/g, '').match(/([\d.]+)\s*(m|k|million|mn)?/i); if (!m) return 0; const n = parseFloat(m[1]); return Math.round(n * (/^m/i.test(m[2] || '') ? 1e6 : /^k/i.test(m[2] || '') ? 1e3 : 1)); };
+const pBeds = v => { const t = String(v || '').toLowerCase(), out = new Set(); if (/studio/.test(t)) out.add(0); const ns = (t.match(/\d+/g) || []).map(Number).filter(n => n < 10);
+  if (ns.length >= 2 && /[-–to]/.test(t)) for (let b = Math.min(...ns); b <= Math.max(...ns); b++) out.add(b); else ns.forEach(n => out.add(n)); return [...out].sort((a, b) => a - b); };
+const pDone = v => { const t = String(v || ''), q = t.match(/q([1-4])\D*(20\d\d)/i), y = t.match(/(20\d\d)/); if (/ready/i.test(t)) return Date.now() - D;
+  if (q) return Date.UTC(+q[2], +q[1] * 3 - 1, 28); const d = Date.parse(t); if (!isNaN(d)) return d; return y ? Date.UTC(+y[1], 11, 31) : null; };
+async function aiReadProject(text){
+  return gemini(`Extract the off-plan property project from this text (a developer launch message, brochure or email). Reply only JSON: {"name":"","developer":"","area":"","from_price_aed":"","bedrooms":"e.g. Studio–3","handover":"e.g. Q4 2027 or Ready","payment_plan":"e.g. 60/40","post_handover":true/false,"brochure_url":""}. Use "" when unknown; never guess numbers.\n\nText:\n${text.slice(0, 6000)}`, true);
+}
+function projAddSheet(s){
+  const f = s.f || {}, mine = S.myProj || [];
+  const fld = (k, label, ph) => `<div class="field"><label for="pa_${k}">${label}</label><input class="input" id="pa_${k}" data-pa="${k}" value="${esc(f[k] || '')}" placeholder="${ph || ''}"></div>`;
+  return head('Add a project', 'Paste what the developer or broker sent you – the AI fills in the details')
+    + `<div class="form"><textarea class="input" id="pa_text" rows="5" placeholder="Paste the launch message, brochure text or email here…">${esc(s.text || '')}</textarea>
+      <button class="btn btn-primary" data-act="projAiRead">✨ Fill in with AI (free)</button>${s.busy ? '<div class="hint">Reading…</div>' : ''}${s.err ? `<div class="banner">${esc(s.err)}</div>` : ''}
+      ${fld('name', 'Project name *', 'e.g. Sobha Hartland II')}${fld('dev', 'Developer', 'e.g. Sobha')}${fld('area', 'Area', 'e.g. MBR City')}
+      ${fld('price', 'From price (AED)', 'e.g. 1.65M')}${fld('beds', 'Bedrooms', 'e.g. Studio–3')}${fld('hand', 'Handover', 'e.g. Q4 2027 or Ready')}
+      ${fld('plan', 'Payment plan', 'e.g. 60/40')}${chipGroup('post', [['','No post-handover'],['1','Post-handover plan']], f.post ? '1' : '', 'paPost')}${fld('bro', 'Brochure link (optional)', 'https://…')}
+      <button class="btn btn-primary btn-big" data-act="projSave">Save project</button></div>
+      ${mine.length ? `<div class="lbl">Your projects (${mine.length})</div><div class="list">${mine.map(p => `<div class="row"><span class="rmain"><span class="rname">${esc(p.name)}</span><span class="rsub">${esc([p.area, p.min ? 'from ' + money(p.min, p.cur) : '', p.done ? qtr(p.done) : '', p.plan].filter(Boolean).join(' · '))}</span></span><button class="btn btn-ghost" data-act="projDel" data-v="${esc(p.id)}">Remove</button></div>`).join('')}</div>` : ''}`;
+}
+function saveMyProj(items){ write('config/myprojects', {items, at: Date.now()}, 'set'); S.myProj = items; S.proj = [...items, ...(S.projR || [])]; }
 function projSheet(l, s){
   const L = s.lang || l.lang || 'en', sel = s.ids || [], list = projList(s), shown = list.slice(0, 60), y = new Date().getFullYear();
   const areas = Object.entries((S.proj || []).reduce((m, p) => (p.area && (m[p.area] = (m[p.area] || 0) + 1), m), {})).sort((a, b) => b[1] - a[1]).map(x => x[0]);
   const msg = s.msg || (sel.length ? projMessage(l, sel, L, s.bro) : '');
-  return head('Pitch projects to ' + esc((l.name || '').split(' ')[0]), `Pick 1–3 · ${list.length} match · ${(S.proj || []).filter(projNew).length} new · updated ${S.projAt ? ago(S.projAt) : '–'}`)
+  return head('Pitch projects to ' + esc((l.name || '').split(' ')[0]), `Pick 1–3 · ${list.length} match`)
+    + `<div class="actions"><button class="btn btn-ghost" data-act="projAdd" data-id="${l.id}">➕ Add a project (paste launch text)</button></div>`
+    + (!(S.proj || []).length ? '<div class="empty">No projects yet. Tap “Add a project” and paste a developer’s launch message, brochure text or email – the AI fills in the details.</div>' : '')
+    + `<div class="hint">${(S.proj || []).filter(projNew).length} new · ${(S.myProj || []).length} added by you · Reelly updated ${S.projAt ? ago(S.projAt) : '–'}</div>`
     + (sel.length ? `<div class="card form"><b>Your message (${sel.length} of 3)</b><textarea class="input" id="proj_msg" rows="${4 + sel.length * 2}" dir="${L === 'ar' ? 'rtl' : 'ltr'}">${esc(msg)}</textarea>
         ${chipGroup('bro', [['','Short'],['1','+ brochure links']], s.bro || '', 'projF')}${chipGroup('plang', LANGS, L, 'projLang')}${sendRow(l, msg, L)}</div>` : '')
     + `<div class="form"><input class="input" id="proj_q" type="search" placeholder="Search project, area or developer…" value="${esc(s.q || '')}" autocomplete="off">
@@ -1778,6 +1805,7 @@ function renderSheet(){
   if (!l) { closeSheet(); return; }
   let h = '';
   if (s.type === 'projects') { box.innerHTML = projSheet(l, s); return; }
+  if (s.type === 'projadd') { box.innerHTML = projAddSheet(s); return; }
   if (s.type === 'reqfields') {
     const have = l.bxReq || {};
     h = head('Bitrix needs these for ' + esc(STAGE[s.stage] || 'Contacted'), esc(l.name || '') + ' – answer once, they are sent to Bitrix with the stage.')
@@ -1972,7 +2000,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '68';
+const APP_VER = '69';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -1989,12 +2017,23 @@ document.addEventListener('click', e => {
     case 'dictate': dictate(t, id); break;
     case 'aiTest': { S.aiTest = 'Testing…'; renderView(); write('config/private', {geminiKey: aiKey()}, 'merge');
       gemini('Reply with exactly: OK').then(a => { S.aiTest = '✓ Gemini works – the AI features and the morning coach can use it now (' + String(a).trim().slice(0, 20) + ')'; renderView(); }, er => { S.aiTest = '✗ ' + (er.message || er.code); renderView(); }); break; }
-    case 'projOpen': { if (!(S.proj || []).length) { toast((S.priv || {}).reellyKey ? 'Projects are loading – they arrive within about 10 minutes' : 'Add your Reelly API key in Settings → Projects from Reelly', 7000); break; }
-      const l = S.leads.get(id), b = l.budget || '', pre = /< ?1M/.test(b) ? '1' : /1–2M/.test(b) ? '2' : /2–5M/.test(b) ? '5' : /5M/.test(b) ? '5+' : '';
+    case 'projOpen': { const l = S.leads.get(id), b = l.budget || '', pre = /< ?1M/.test(b) ? '1' : /1–2M/.test(b) ? '2' : /2–5M/.test(b) ? '5' : /5M/.test(b) ? '5+' : '';
       openSheet('projects', id, {ids: [], lang: (S.sheet && S.sheet.lang) || l.lang || 'en', budget: pre, sort: 'new'}); break; }
     case 'projPick': { const sh = S.sheet, v = t.dataset.v, ids = sh.ids || [];
       if (ids.includes(v)) sh.ids = ids.filter(x => x !== v); else if (ids.length >= 3) { toast('Up to 3 projects per message'); break; } else sh.ids = [...ids, v];
       sh.msg = ''; renderSheet(); break; }
+    case 'projAdd': S.backTo = S.sheet; openSheet('projadd', id, {f: {}}); break;
+    case 'projAiRead': { const sh = S.sheet, txt = ($('#pa_text') || {}).value || ''; if (!txt.trim()) { toast('Paste the launch text first'); break; } sh.text = txt; sh.busy = true; sh.err = ''; renderSheet();
+      aiReadProject(txt).then(j => { sh.busy = false; sh.f = {...sh.f, name: j.name || sh.f.name, dev: j.developer || '', area: j.area || '', price: j.from_price_aed || '', beds: j.bedrooms || '', hand: j.handover || '', plan: j.payment_plan || '', post: !!j.post_handover, bro: j.brochure_url || ''}; if (S.sheet === sh) renderSheet(); },
+        e => { sh.busy = false; sh.err = (e.message || e.code) + ' – you can also fill the fields by hand.'; if (S.sheet === sh) renderSheet(); }); break; }
+    case 'paPost': S.sheet.f = {...S.sheet.f, post: t.dataset.v === '1'}; renderSheet(); break;
+    case 'projSave': { const sh = S.sheet, f = {...sh.f}; document.querySelectorAll('[data-pa]').forEach(i => f[i.dataset.pa] = i.value.trim());
+      if (!f.name) { toast('Add the project name'); break; }
+      const p = {id: 'my' + Date.now().toString(36), name: f.name.slice(0, 80), dev: f.dev || '', area: f.area || '', region: 'Dubai', min: pNum(f.price), cur: 'AED', sale: '', done: pDone(f.hand), img: '', bro: /^https?:\/\//.test(f.bro || '') ? f.bro : '',
+        beds: pBeds(f.beds), plan: (f.plan || '').slice(0, 40), post: !!f.post, seen: Date.now(), mine: true};
+      saveMyProj([p, ...(S.myProj || [])]); toast('Project saved – it is in Pitch projects now');
+      if (S.backTo && S.backTo.type === 'projects') { const b = S.backTo; S.backTo = null; openSheet('projects', b.id, {...b, ids: [...(b.ids || []), p.id].slice(0, 3), msg: ''}); } else closeSheet(); break; }
+    case 'projDel': saveMyProj((S.myProj || []).filter(p => p.id !== t.dataset.v)); renderSheet(); toast('Removed'); break;
     case 'projF': { const sh = S.sheet; sh[t.dataset.g] = t.dataset.v; if (t.dataset.g === 'bro') sh.msg = ''; renderSheet(); break; }
     case 'projLang': { const sh = S.sheet; sh.lang = t.dataset.v; sh.msg = ''; renderSheet(); break; }
     case 'aiImprove': { const l = S.leads.get(id), sh = S.sheet, box = $('#own_msg'), text = (box && box.value || '').trim();
