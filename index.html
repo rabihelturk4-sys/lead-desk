@@ -737,7 +737,8 @@ async function bxRun(){
         const lid = job.params.lead || job.lead;
         try { await bxJunk(job.params); } catch (e) {
           if (e.code === 'net' || /^http5/.test(e.code)) throw e; bxDrop(job); bxSave();
-          if (e.code === 'noid') { junkDone(lid, 'Junked in Lead Desk – this lead is not in Bitrix'); toast('Junked ✓ (not in Bitrix)'); } else junkFailed(lid, e.message || e.code);
+          if (e.code === 'noid') { junkDone(lid, 'Junked in Lead Desk – this lead is not in Bitrix'); toast('Junked ✓ (not in Bitrix)'); }
+          else { junkDone(lid, 'Junked in Lead Desk – Bitrix did not take it: ' + (e.message || e.code)); toast('Junked in Lead Desk ✓ – Bitrix did not take it (' + (e.message || e.code) + ')', 9000); }   /* Lead Desk junks it anyway */
           continue; }
         bxDrop(job); bxSave(); S.bxErr = ''; junkDone(lid, 'Junked – ' + (job.params.reason || 'Wrong details') + ' (also in Bitrix)');
         toast('Junked ✓ – also in Bitrix'); continue; }
@@ -753,7 +754,9 @@ async function bxRun(){
       else await bxCall(job.method, job.params);
       bxDrop(job); bxSave(); S.bxErr = '';
     } catch (e) {
-      if (e.code === 'net' || /^http5/.test(e.code)) { S.bxErr = e.message; break; }   /* offline: keep and retry later */
+      if (e.code === 'net' || /^http5/.test(e.code)) { job.tries = (job.tries || 0) + 1;
+        if (job.tries < 8 || e.code === 'net' && job.tries < 50) { bxSave(); S.bxErr = e.message; break; }   /* offline: keep and retry later */
+        bxDrop(job); bxSave(); continue; }                                  /* kept failing: give up so the rest can go */
       if (e.code === 'notinbx') { bxDrop(job); bxSave(); continue; }       /* Lead Desk-only lead: skip quietly */
       S.bxErr = (e.message || e.code) + ' (' + job.what + ')'; bxDrop(job); bxSave(); toast('Bitrix did not take the ' + job.what + ': ' + (e.message || e.code), 9000);
     }
@@ -859,10 +862,15 @@ function doJunk(id){
   junkStatus().then(st => {
     if (!st) throw {message: 'No junk stage found in Bitrix – pick it in Settings → Bitrix24 (Junk line)'};
     bxQueue(S.leads.get(id), 'ld.junk', {id: bxId(l) || undefined, phone: l.phone || '', email: l.email || '', status: st, reason: S.cfg.bxJunkName || reason, lead: id}, 'junk');
-  }).catch(e => junkFailed(id, e.message || e.code));
+  }).catch(e => junkDone(id, 'Junked in Lead Desk – Bitrix not updated: ' + (e.message || e.code)));
   return true;
 }
 /* Junked leads are kept: off every list, but always findable under 🗑 Junked */
+function junkSweep(){
+  const pending = new Set(bxQ.filter(j => j.method === 'ld.junk').map(j => j.params.lead || j.lead));
+  for (const l of S.leads.values()) if (l.stage === 'junk' && !pending.has(l.id)) junkDone(l.id, 'Junked in Lead Desk');
+}
+setInterval(() => { if (S.ready) junkSweep(); }, 60e3);
 function junkDone(id, note){
   if (!S.leads.has(id)) return;
   patchLead(id, {stage: 'junkbx', prevStage: S.leads.get(id).junkFrom || 'noanswer', junkErr: null, hot: false, nextAt: null, fresh: false}, {k: 'note', txt: note}, {quiet: true}); render();
@@ -1105,7 +1113,7 @@ function saveSession(){
 }
 let restored = false;
 function restoreSession(){
-  if (restored) return; restored = true;
+  if (restored) return; restored = true; setTimeout(junkSweep, 3000);
   const want = new URLSearchParams(location.search).get('lead');                 /* opened from a phone alert */
   if (want) { try { history.replaceState(null, '', location.pathname); } catch (e) {} if (S.leads.has(want)) { openSheet('lead', want); return; } }
   let ss = null; try { ss = JSON.parse(localStorage.getItem('ld_session') || 'null'); } catch (e) {}
@@ -2111,7 +2119,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '73';
+const APP_VER = '74';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
