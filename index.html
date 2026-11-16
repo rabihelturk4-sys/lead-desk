@@ -704,7 +704,9 @@ function write(path, data, mode){
    logged results and updates → crm.timeline.comment.add, new leads → found by phone or created. */
 const bxHook = () => { try { return (localStorage.getItem('bxHook') || '').trim().replace(/\/?$/, '/'); } catch (e) { return ''; } };
 const bxValid = h => /^https:\/\/[^/]+\/rest\/\d+\/[^/]+\/$/.test(h);
-const bxOn = () => { try { return localStorage.getItem('bxOn') === '1' && bxValid(bxHook()); } catch (e) { return false; } };
+/* Bitrix read-only (the default): Lead Desk copies from Bitrix but never moves or comments anything there */
+const bxRO = () => S.cfg.bxReadOnly !== false;
+const bxOn = () => { try { return !bxRO() && localStorage.getItem('bxOn') === '1' && bxValid(bxHook()); } catch (e) { return false; } };
 const bxPortal = () => { const m = bxHook().match(/^https:\/\/[^/]+/); return m ? m[0] : ''; };
 const bxId = l => l && (l.bxId || l.leadNo) ? String(l.bxId || l.leadNo) : '';
 /* Bitrix reads form fields like fields[PHONE][0][VALUE]=… (a simple request, no pre-check by the browser) */
@@ -855,9 +857,9 @@ function doJunk(id){
   const l = S.leads.get(id); if (!l) return;
   const linked = bxOn() && bxValid(bxHook());
   const reason = S.cfg.bxJunkName || 'Wrong details';
-  if (!confirm('Junk ' + (l.name || 'this lead') + '?\n\nIt leaves your calling lists and goes to 🗑 Junked (Leads tab), where you can always find it.' + (linked ? ' In Bitrix it is set to Junk – ' + reason + ' (if the lead exists there).' : ' Bitrix is NOT updated on this device.'))) return false;
+  if (!confirm('Junk ' + (l.name || 'this lead') + '?\n\nIt leaves your calling lists and goes to 🗑 Junked (Leads tab), where you can always find it.' + (linked ? ' In Bitrix it is set to Junk – ' + reason + ' (if the lead exists there).' : (bxRO() ? ' Bitrix is not changed (read only).' : ' Bitrix is NOT updated on this device.')))) return false;
   if (S.lastCall && S.lastCall.id === id) { S.lastCall = null; S.afterCall = null; }
-  if (!linked) { junkDone(id, 'Junked in Lead Desk (Bitrix not updated on this device)'); return true; }
+  if (!linked) { junkDone(id, bxRO() ? 'Junked in Lead Desk (Bitrix read only – not changed)' : 'Junked in Lead Desk (Bitrix not updated on this device)'); return true; }
   patchLead(id, {stage: 'junk', junkFrom: l.stage, junkErr: null, hot: false, nextAt: null, fresh: false}, null, {quiet: true});
   junkStatus().then(st => {
     if (!st) throw {message: 'No junk stage found in Bitrix – pick it in Settings → Bitrix24 (Junk line)'};
@@ -905,11 +907,11 @@ async function bxPull(manual){
       const ex = findByPhone(phone) || findByEmail(email);
       const name = [b.NAME, b.LAST_NAME].filter(Boolean).join(' ') || b.TITLE || 'New lead';
       const created = b.DATE_CREATE ? Date.parse(b.DATE_CREATE) : Date.now();
-      if (ex) { patchLead(ex.id, {bxId: String(b.ID), leadNo: ex.leadNo || String(b.ID), stage: 'noanswer', fresh: true, nextAt: nextWindowAt(ex)}, {k: 'note', txt: 'Came in again from Bitrix (lead #' + b.ID + ')'}, {quiet: true}); added.push(ex.name);
+      if (ex) { patchLead(ex.id, {bxId: String(b.ID), leadNo: ex.leadNo || String(b.ID), stage: ex.stage === 'noanswer' ? 'noanswer' : 'new', fresh: true, nextAt: nextWindowAt(ex)}, {k: 'note', txt: 'Came in again from Bitrix (lead #' + b.ID + ')'}, {quiet: true}); added.push(ex.name);
         continue; }
       const id = 'X' + b.ID;
       const lead = newLeadDoc({name, phone, email, notes: [b.COMMENTS && String(b.COMMENTS).replace(/<[^>]+>/g, ' ').trim(), b.SOURCE_DESCRIPTION].filter(Boolean).join('\n'), source: b.SOURCE_ID || 'Bitrix'});
-      Object.assign(lead, {stage: 'noanswer', fresh: true, freshAt: Date.now(), bxId: String(b.ID), leadNo: String(b.ID), crmCreated: created, lastAt: null, note: lead.note,
+      Object.assign(lead, {stage: 'new', fresh: true, freshAt: Date.now(), bxId: String(b.ID), leadNo: String(b.ID), crmCreated: created, lastAt: null, note: lead.note,
         history: [{t: Date.now(), k: 'created', txt: 'New lead from Bitrix (lead #' + b.ID + ')'}]});
       lead.nextAt = nextWindowAt(lead);
       S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set'); added.push(name);
@@ -1220,7 +1222,7 @@ function viewToday(){
   const dh = dubaiHour();
   const q = buildQueue(); const f = S.cfg.focus || {};
   const d = new Date().toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'});
-  const bxWarn = bxValid(bxHook()) && !bxOn() ? 'Bitrix updates are off on this device – turn on "Update Bitrix automatically" in Settings → Bitrix24.'
+  const bxWarn = bxValid(bxHook()) && !bxRO() && !bxOn() ? 'Bitrix updates are off on this device – turn on "Update Bitrix automatically" in Settings → Bitrix24.'
     : S.bxErr ? 'Last Bitrix problem: ' + S.bxErr : '';
   return `${bxWarn ? `<div class="banner">${esc(bxWarn)}</div>` : ''}${coachCard()}<section class="hero">
     <div class="date">${esc(d)}</div>
@@ -1675,7 +1677,10 @@ function viewMsgs(){
       <div class="field"><label for="c_vapid">Web Push key (Firebase → Project settings → Cloud Messaging → Web Push certificates)</label><input class="input" id="c_vapid" data-cfg="vapidKey" autocomplete="off" value="${esc(S.cfg.vapidKey || '')}"></div>
       <button class="btn btn-ghost" data-act="enablePush">${pushOn() ? '✓ Alerts on for this device – tap to refresh' : 'Turn on alerts on this device'}</button>` : ''}
     ${bxValid(bxHook()) && Object.keys(S.cfg.bxMap || {}).length ? `<button class="btn btn-ghost" data-act="bxImportAll">Bring in all my Bitrix leads and emails</button><div class="hint" id="bx_sync">${esc(S.bxSyncMsg || 'Adds every Bitrix lead assigned to you that is missing here, in the matching stage, and adds the email from Bitrix to leads that have none. Bitrix is not changed.')}</div>` : ''}
-    ${bxValid(bxHook()) ? chipGroup('bxOn', [['0','Off – test first'],['1','Update Bitrix automatically']], bxOn() ? '1' : '0', 'setBxOn') : ''}
+    ${bxValid(bxHook()) ? `<div class="field"><span class="lbl">How Lead Desk works with Bitrix</span>${chipGroup('ro', [['1','Read only – copy from Bitrix, never change it'],['0','Also update Bitrix (stages + comments)']], bxRO() ? '1' : '0', 'setRO')}</div>` : ''}
+    ${bxValid(bxHook()) && !bxRO() ? chipGroup('bxOn', [['0','Off – test first'],['1','Update Bitrix automatically']], localStorage.getItem('bxOn') === '1' ? '1' : '0', 'setBxOn') : ''}
+    ${bxValid(bxHook()) ? `<div class="hint">${(() => { const f = S.sync && S.sync.fullImp; return f ? `Copy of all your Bitrix leads: ${f.done ? 'done ✓' : 'in progress'} – ${Math.min(f.start, f.total || f.start)}/${f.total || '?'} checked, ${f.added} new, ${f.updated} updated, ${f.comments} comments copied` : 'Copy of all your Bitrix leads and comments starts with the next background run (every few minutes).'; })()}</div>
+      <button class="btn btn-ghost" data-act="bxCopyAll">Copy all from Bitrix again (leads + comments)</button>` : ''}
     ${bxQ.length ? `<div class="hint">${bxQ.length} update${bxQ.length > 1 ? 's' : ''} waiting to be sent to Bitrix.</div>` : ''}${S.bxErr ? `<div class="banner">Last Bitrix problem: ${esc(S.bxErr)}</div>` : ''}
   </div>
   <div class="card form">
@@ -2119,7 +2124,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '74';
+const APP_VER = '75';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -2365,6 +2370,8 @@ document.addEventListener('click', e => {
     case 'testNaMail': queueNaMail({id: '', name: (S.cfg.myName || 'Test').split(' ')[0], email: myEmail(), lang: 'en'}, true); toast('Test email queued – it arrives in your inbox within about 5–15 minutes'); break;
     case 'setAuto': { const g = t.closest('[data-group]'); const k = (g && g.dataset.group) || t.dataset.g; S.cfg[k] = t.dataset.v === '1'; saveCfg(); renderView(); toast('Saved'); break; }
     case 'cardDel': write('config/card', null, 'del'); S.cfg.cardName = ''; S.cardPreview = ''; saveCfg(); renderView(); toast('Business card removed'); break;
+    case 'setRO': S.cfg.bxReadOnly = t.dataset.v === '1'; saveCfg(); renderView(); toast(S.cfg.bxReadOnly ? 'Read only – Lead Desk will not change Bitrix' : 'Lead Desk will update Bitrix again'); break;
+    case 'bxCopyAll': S.cfg.bxFullImport = Date.now(); saveCfg(); toast('Started – all Bitrix leads and comments are copied over the next runs (about 200 leads every few minutes)', 8000); renderView(); break;
     case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} savePrivate(true); renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
     case 'bxSendOne': { const l = S.leads.get(id); const last = (l.history || []).filter(x => !BX_SKIP.has(x.k)).slice(-1)[0];
       toast('Sending to Bitrix…');

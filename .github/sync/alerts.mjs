@@ -7,6 +7,7 @@
 import {form} from './bitrix-sync.mjs';
 import {coachCfg, isQuiet, isDayOff, aiPlan, weekly, eveningText} from './coach.mjs';
 import {syncProjects} from './projects.mjs';
+import {fullImport} from './bximport.mjs';
 const H = 3600e3, D = 24 * H;
 const dubai = t => new Date(t + 4 * H);
 const dubaiDay = t => dubai(t).toISOString().slice(0, 10);
@@ -168,7 +169,7 @@ async function main(){
             await leadsRef.doc(l.id).update(patch);
             await push(stop ? `${l.name} asked to stop emails` : `✉️ ${l.name || from} replied`, stop ? 'No more update emails will be sent.' : words.slice(0, 140), './?lead=' + l.id);
             const bid = l.bxId || l.leadNo;
-            if (hasHook && bid) {
+            if (hasHook && bid && cfg.bxReadOnly === false) {                /* read-only: Bitrix is never changed */
               await bxComment(bid, stamp(now) + '\nClient replied by email: ' + words).catch(e => console.log('bitrix comment: ' + e.message));
               if (toPipeline && map.talking) await bx(hook, 'crm.lead.update', {id: bid, fields: {STATUS_ID: map.talking, ...(l.bxReq || {})}}).catch(() => {});
             }
@@ -253,6 +254,8 @@ async function main(){
 
   /* 6. Reelly projects (only when a Reelly API key is saved in Lead Desk) */
   await syncProjects({fs, root, sync, set, notes, now}).catch(e => notes.push('Reelly: ' + e.message));
+  /* 7. Copy all Bitrix leads and comments into Lead Desk (read-only, a few hundred per run until done) */
+  if (hasHook) await fullImport({admin, root, hook, cfg, sync, set, notes, leads, now}).catch(e => notes.push('Bitrix copy problem: ' + e.message));
   if (set.projNew && set.projNew.length) await nudge(`🏗 ${set.projNew.length} new project${set.projNew.length > 1 ? 's' : ''} on Reelly`, set.projNew.slice(0, 3).join(', ') + ' – tap to pitch to your clients.', './');
 
   set.alertsRun = now;

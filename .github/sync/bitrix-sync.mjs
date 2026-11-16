@@ -1,6 +1,6 @@
 /* Lead Desk background check, run by GitHub Actions every 5 minutes.
-   Brings leads assigned to me in the chosen Bitrix stage ("Lead assigned") into Lead Desk (No answer, marked NEW),
-   moves them to the matched No answer stage in Bitrix, and sends a push notification to the devices that turned them on.
+   Copies leads assigned to me in the chosen Bitrix stage ("Lead assigned") into Lead Desk (marked NEW) and sends a push notification.
+   Bitrix is read-only by default: leads are not moved there unless "Update Bitrix" is chosen in Lead Desk.
    Needs repository secrets: FIREBASE_SERVICE_ACCOUNT (JSON), BITRIX_WEBHOOK; optional LEADDESK_UID. */
 let admin;
 
@@ -41,13 +41,13 @@ export function plan(bxLeads, existing, now = Date.now()){
     const phone = ((b.PHONE || [])[0] || {}).VALUE || '', email = ((b.EMAIL || [])[0] || {}).VALUE || '';
     const name = [b.NAME, b.LAST_NAME].filter(Boolean).join(' ') || b.TITLE || 'New lead';
     const ex = (digits(phone).length >= 7 && byPhone.get(digits(phone))) || (email && byEmail.get(email.toLowerCase()));
-    if (ex) { updates.push({docId: ex.id, name: ex.name, patch: {bxId: id, leadNo: ex.leadNo || id, stage: 'noanswer', fresh: true, freshAt: now, nextAt: nextWindowAt(ex.phone, now)},
+    if (ex) { updates.push({docId: ex.id, name: ex.name, patch: {bxId: id, leadNo: ex.leadNo || id, stage: ['junkbx', 'junk'].includes(ex.stage) ? 'new' : ex.stage === 'noanswer' ? 'noanswer' : 'new', fresh: true, freshAt: now, nextAt: nextWindowAt(ex.phone, now)},
       hist: {t: now, k: 'note', txt: 'Came in again from Bitrix (lead #' + id + ')'}}); continue; }
     const info = phoneInfo(phone);
     const note = [b.COMMENTS && String(b.COMMENTS).replace(/<[^>]+>/g, ' ').replace(/\s+\n/g, '\n').trim(), b.SOURCE_DESCRIPTION].filter(Boolean).join('\n');
     creates.push({docId: 'X' + id, name, doc: {name, phone: phone ? '+' + digits(phone) : '', email, flag: info.flag, country: info.country, lang: info.lang,
       source: b.SOURCE_ID || 'Bitrix', budget: null, purpose: null, ptype: null, timeline: null, project: '', note, crm: '', leadNo: id, campaign: '', rule: '',
-      stage: 'noanswer', hot: false, noAnswer: 0, said: [], todo: '', createdAt: now, lastAt: null, nextAt: nextWindowAt(phone, now), meetingAt: null, meetingKind: '',
+      stage: 'new', hot: false, noAnswer: 0, said: [], todo: '', createdAt: now, lastAt: null, nextAt: nextWindowAt(phone, now), meetingAt: null, meetingKind: '',
       fresh: true, freshAt: now, bxId: id, crmCreated: b.DATE_CREATE ? Date.parse(b.DATE_CREATE) : now, crmTimeKnown: false,
       history: [{t: now, k: 'created', txt: 'New lead from Bitrix (lead #' + id + ') – brought in automatically ' + stamp(now)}]}});
   }
@@ -87,7 +87,7 @@ async function main(){
     for (const c of creates) await root.collection('leads').doc(c.docId).set(c.doc, {merge: true});
     for (const u of updates) await root.collection('leads').doc(u.docId).update({...u.patch, history: admin.firestore.FieldValue.arrayUnion(u.hist)});
     const target = (cfg.bxMap || {}).noanswer;
-    if (target && target !== cfg.bxInStage) for (const id of moves) {
+    if (cfg.bxReadOnly === false && target && target !== cfg.bxInStage) for (const id of moves) {   /* read-only (default): leads stay where they are in Bitrix */
       try { await bx(hook, 'crm.lead.update', {id, fields: {STATUS_ID: target}}); } catch (e) { console.log(e.message); }
     }
     const names = [...creates, ...updates].map(x => x.name);
