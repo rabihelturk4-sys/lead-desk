@@ -731,6 +731,7 @@ let bxQ = []; try { bxQ = JSON.parse(localStorage.getItem('bxQueue') || '[]'); }
 const bxSave = () => { try { localStorage.setItem('bxQueue', JSON.stringify(bxQ)); } catch (e) {} };
 let bxBusy = false;
 async function bxRun(){
+  if (bxRO()) { if (bxQ.length) { bxQ = []; bxSave(); } return; }      /* read only: drop anything still waiting from before */
   if (bxBusy || !bxQ.length || !bxValid(bxHook())) return; bxBusy = true;
   while (bxQ.length) {
     const job = bxQ.find(j => !bxHeld(j)); if (!job) break;
@@ -768,6 +769,7 @@ async function bxRun(){
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') bxRun(); });
 window.addEventListener('online', () => bxRun());
 function bxQueue(l, method, params, what, auto){
+  if (bxRO()) return;                                                   /* read only: nothing ever goes to Bitrix */
   const cur = S.leads.get(l.id) || l;                                   /* lead only in Lead Desk: nothing to send */
   if (!bxId(cur) && cur.bxNone && Date.now() - cur.bxNone < D && method !== 'ld.junk') return; bxQ.push({lead: l.id, method, params, what, t: Date.now(), ...(auto ? {auto: true} : {})}); bxSave(); bxRun(); }
 const bxDrop = job => { const i = bxQ.indexOf(job); if (i >= 0) bxQ.splice(i, 1); };
@@ -2124,7 +2126,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '75';
+const APP_VER = '76';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));

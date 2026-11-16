@@ -80,7 +80,7 @@ async function main(){
   const hist = (txt, k = 'note') => admin.firestore.FieldValue.arrayUnion({t: Date.now(), k, txt});
   const hour = dubai(now).getUTCHours(), day = dubaiDay(now), set = {};
   const hook = (process.env.BITRIX_WEBHOOK || '').trim().replace(/\/?$/, '/'), hasHook = /\/rest\/\d+\//.test(hook), map = cfg.bxMap || {};
-  const bxComment = async (id, text) => {
+  const bxComment = async (id, text) => { if (cfg.bxReadOnly !== false) return;                       /* read only: never write to Bitrix */
     const cur = (await bx(hook, 'crm.lead.get', {id})).result || {}, old = cur.COMMENTS ? String(cur.COMMENTS) : '';
     await bx(hook, 'crm.lead.update', {id, fields: {COMMENTS: text + (old.trim() ? '\n\n' + old : '')}});
     await bx(hook, 'crm.timeline.comment.add', {fields: {ENTITY_ID: id, ENTITY_TYPE: 'lead', COMMENT: text}}).catch(() => {});
