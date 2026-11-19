@@ -1704,6 +1704,8 @@ function viewMsgs(){
   </div>
   <div class="card form">
     <h3>Account and backup</h3>
+    <label class="btn btn-ghost" for="leads_file">📄 Import leads from a file (Salesforce report export, Excel or CSV)</label><input type="file" id="leads_file" accept=".xlsx,.xls,.csv" hidden>
+    <div class="hint">Same person twice (same phone, email or Salesforce ID) is never added again – only missing details and new notes are filled in.</div>
     <p class="hint" style="margin:0">Signed in as <b>${esc(fbUser ? (fbUser.email || fbUser.displayName || '') : '')}</b>. Your leads are stored in your own Firebase database and saved on this device for offline use.</p>
     <div class="actions"><button class="btn btn-ghost" data-act="exportAll">Download backup</button><label class="btn btn-ghost" for="imp_file">Import backup file</label></div>
     <input type="file" id="imp_file" accept=".json,application/json,text/plain" hidden>
@@ -2126,7 +2128,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '76';
+const APP_VER = '77';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -2522,6 +2524,49 @@ function parsePaste(text){
   const recs = starts.length < 2 ? [parseOne(text)] : starts.map((st, k) => parseOne(lines.slice(st, k + 1 < starts.length ? starts[k + 1] : lines.length).join('\n')));
   return recs.filter(r => r.phone || r.email);
 }
+/* ---------- Import leads from a file (e.g. a Salesforce report exported to Excel/CSV) ---------- */
+const LCOL = {sfid: /^(lead|record|opportunity|contact|account)? ?id$|^id$|lead id|record id|opportunity id|contact id/i, first: /^first ?name$/i, last: /^last ?name$/i,
+  name: /^(full ?name|name|lead name|contact name|account name|opportunity name|lead owner name)$/i, mobile: /mobile|cell|whats/i, phone: /phone|tel/i, email: /e-?mail/i,
+  status: /status|stage/i, source: /source/i, notes: /description|comment|note|remark|details/i, country: /country|nationality/i, created: /created/i, lastact: /last (activity|modified)/i,
+  budget: /budget|price range/i, project: /project|property|interest/i};
+function sfStage(t){ t = String(t || '').toLowerCase();
+  if (/won|closed.?won|sold|booked|reserv/.test(t)) return 'closed'; if (/junk|unqualif|invalid|spam|wrong|duplicate/.test(t)) return 'junkbx';
+  if (/lost|not interest|closed/.test(t)) return 'lost'; if (/no.?answer|unreach|no.?response|not.?reach/.test(t)) return 'noanswer';
+  if (/meet|viewing|appoint/.test(t)) return 'meeting'; if (/negot|offer|proposal/.test(t)) return 'nego'; if (/hot/.test(t)) return 'hot';
+  if (/later|future|nurtur|follow.?up later/.test(t)) return 'later'; if (/pool|cold/.test(t)) return 'pool';
+  if (/contact|working|progress|qualif|follow/.test(t)) return 'talking'; return 'new'; }
+async function importLeadsFile(file){
+  const X = await loadXLSX(), wb = X.read(await file.arrayBuffer(), {type: 'array', cellDates: true});
+  const rows = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: false, defval: ''});
+  const hi = rows.findIndex(r => { const h = r.map(c => String(c).trim()); return h.filter(Boolean).length >= 3 && h.some(c => LCOL.email.test(c) || LCOL.phone.test(c) || LCOL.mobile.test(c)); });
+  if (hi < 0) throw new Error('No phone or email column found – send me the file and I will adjust the import');
+  const hdr = rows[hi].map(c => String(c).trim()), col = {}, used = new Set();
+  for (const k of ['sfid','first','last','name','mobile','phone','email','status','source','notes','country','created','lastact','budget','project']) {
+    const i = hdr.findIndex((h, j) => !used.has(j) && LCOL[k].test(h) && !(k === 'phone' && LCOL.mobile.test(h)) && !(k === 'name' && /owner/i.test(h))); if (i >= 0) { col[k] = i; used.add(i); } }
+  const v = (r, k) => col[k] == null ? '' : String(r[col[k]] || '').trim();
+  let added = 0, updated = 0, skipped = 0;
+  for (const r of rows.slice(hi + 1)) {
+    const name = [v(r, 'first'), v(r, 'last')].filter(Boolean).join(' ') || v(r, 'name'), phone = v(r, 'mobile') || v(r, 'phone'), email = v(r, 'email').toLowerCase(), sfid = v(r, 'sfid');
+    if (!name && !phone && !email) { skipped++; continue; }
+    const ex = (sfid && [...S.leads.values()].find(l => l.sfId === sfid)) || findByPhone(phone) || findByEmail(email);
+    const note = v(r, 'notes'), stamp = v(r, 'created') ? Date.parse(v(r, 'created')) || null : null;
+    if (ex) {
+      const p = {sfId: sfid || ex.sfId || ''};
+      if (!ex.email && email) p.email = email; if (!digits(ex.phone) && phone) p.phone = '+' + digits(phone);
+      const hist = note && !(ex.history || []).some(h => (h.txt || '').includes(note.slice(0, 120))) && !(ex.crm || '').includes(note.slice(0, 120)) ? {k: 'note', txt: 'Salesforce: ' + note.slice(0, 1500)} : null;
+      patchLead(ex.id, p, hist, {quiet: true}); updated++; continue;
+    }
+    const id = 'S' + (sfid || Date.now().toString(36) + added).replace(/\W/g, '');
+    const lead = newLeadDoc({name: name || 'No name', phone, email, source: v(r, 'source') || 'Salesforce', budget: v(r, 'budget') || null, project: v(r, 'project')});
+    const stage = sfStage(v(r, 'status'));
+    Object.assign(lead, {stage, sfId: sfid, crm: note.slice(0, 4000), crmCreated: stamp, nextAt: ['new','noanswer'].includes(stage) ? nextWindowAt(lead) : null, fresh: false,
+      history: [{t: Date.now(), k: 'created', txt: 'Imported from file' + (v(r, 'status') ? ' (status ' + v(r, 'status') + ')' : '')}]});
+    if (['later','pool'].includes(stage)) lead.needDate = true;
+    S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set'); added++;
+  }
+  render();
+  return {added, updated, skipped, cols: Object.keys(col)};
+}
 const findByPhone = p => { const d = digits(p); return d.length >= 7 ? [...S.leads.values()].find(l => digits(l.phone) === d) : null; };
 const findByEmail = e => e ? [...S.leads.values()].find(l => (l.email || '').toLowerCase() === e.toLowerCase()) : null;
 function newLeadDoc(f){
@@ -2736,6 +2781,11 @@ async function importLeads(text){
   const box = $('#imp_text'); if (box) box.value = ''; renderView(); toast(S.impMsg);
 }
 /* Business card: an image is made smaller (JPEG, max 1400 px) so it fits in the database; a PDF must be under 600 KB */
+document.addEventListener('change', async e => { if (e.target.id !== 'leads_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  toast('Reading ' + f.name + '…');
+  try { const r = await importLeadsFile(f); toast(`${r.added} new leads, ${r.updated} updated${r.skipped ? ', ' + r.skipped + ' empty rows skipped' : ''} ✓ (columns: ${r.cols.join(', ')})`, 10000); }
+  catch (err) { toast('Import failed: ' + (err.message || err), 9000); }
+});
 document.addEventListener('change', async e => { if (e.target.id !== 'pa_file') return; const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   toast('Reading ' + f.name + '…');
   try { const r = await importProjectsFile(f); toast(r.added ? `${r.added} projects imported ✓ (columns found: ${r.cols.join(', ')})` : 'No new projects in this file', 9000); renderSheet(); }
