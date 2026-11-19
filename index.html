@@ -1704,6 +1704,7 @@ function viewMsgs(){
   </div>
   <div class="card form">
     <h3>Account and backup</h3>
+    <div class="field"><span class="lbl">New leads from an imported file go to</span>${chipGroup('impStage', [['pool','Pool'],['auto','The stage they have in Salesforce']], S.cfg.impStage === 'auto' ? 'auto' : 'pool', 'setImpStage')}</div>
     <label class="btn btn-ghost" for="leads_file">📄 Import leads from a file (Salesforce report export, Excel or CSV)</label><input type="file" id="leads_file" accept=".xlsx,.xls,.csv" hidden>
     <div class="hint">Same person twice (same phone, email or Salesforce ID) is never added again – only missing details and new notes are filled in.</div>
     <p class="hint" style="margin:0">Signed in as <b>${esc(fbUser ? (fbUser.email || fbUser.displayName || '') : '')}</b>. Your leads are stored in your own Firebase database and saved on this device for offline use.</p>
@@ -2128,7 +2129,7 @@ function doLost(id){ patchLead(id, {stage:'lost', hot:false, lastAt: Date.now(),
 
 /* ---------- events ---------- */
 /* Any unexpected error is shown on screen (and kept in Settings), so a button never fails silently */
-const APP_VER = '77';
+const APP_VER = '78';
 function showErr(msg){ msg = String(msg || 'unknown').slice(0, 200); try { localStorage.setItem('lastErr', new Date().toLocaleString() + ' – ' + msg); } catch (e) {} toast('Problem: ' + msg + ' – please send a screenshot', 9000); }
 window.addEventListener('error', e => showErr((e.message || e.error) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
 window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason.message || e.reason.code) || e.reason));
@@ -2374,6 +2375,7 @@ document.addEventListener('click', e => {
     case 'testNaMail': queueNaMail({id: '', name: (S.cfg.myName || 'Test').split(' ')[0], email: myEmail(), lang: 'en'}, true); toast('Test email queued – it arrives in your inbox within about 5–15 minutes'); break;
     case 'setAuto': { const g = t.closest('[data-group]'); const k = (g && g.dataset.group) || t.dataset.g; S.cfg[k] = t.dataset.v === '1'; saveCfg(); renderView(); toast('Saved'); break; }
     case 'cardDel': write('config/card', null, 'del'); S.cfg.cardName = ''; S.cardPreview = ''; saveCfg(); renderView(); toast('Business card removed'); break;
+    case 'setImpStage': S.cfg.impStage = t.dataset.v; saveCfg(); renderView(); break;
     case 'setRO': S.cfg.bxReadOnly = t.dataset.v === '1'; saveCfg(); renderView(); toast(S.cfg.bxReadOnly ? 'Read only – Lead Desk will not change Bitrix' : 'Lead Desk will update Bitrix again'); break;
     case 'bxCopyAll': S.cfg.bxFullImport = Date.now(); saveCfg(); toast('Started – all Bitrix leads and comments are copied over the next runs (about 200 leads every few minutes)', 8000); renderView(); break;
     case 'setBxOn': try { localStorage.setItem('bxOn', t.dataset.v); } catch (e) {} savePrivate(true); renderView(); toast(t.dataset.v === '1' ? 'Bitrix updates automatically from now on' : 'Bitrix updates off'); if (t.dataset.v === '1') bxRun(); break;
@@ -2558,10 +2560,11 @@ async function importLeadsFile(file){
     }
     const id = 'S' + (sfid || Date.now().toString(36) + added).replace(/\W/g, '');
     const lead = newLeadDoc({name: name || 'No name', phone, email, source: v(r, 'source') || 'Salesforce', budget: v(r, 'budget') || null, project: v(r, 'project')});
-    const stage = sfStage(v(r, 'status'));
+    const sfSt = sfStage(v(r, 'status')), stage = S.cfg.impStage === 'auto' || sfSt === 'junkbx' ? sfSt : 'pool';   /* new leads from the file go to Pool unless you choose otherwise */
     Object.assign(lead, {stage, sfId: sfid, crm: note.slice(0, 4000), crmCreated: stamp, nextAt: ['new','noanswer'].includes(stage) ? nextWindowAt(lead) : null, fresh: false,
       history: [{t: Date.now(), k: 'created', txt: 'Imported from file' + (v(r, 'status') ? ' (status ' + v(r, 'status') + ')' : '')}]});
-    if (['later','pool'].includes(stage)) lead.needDate = true;
+    if (stage === 'later' || (stage === 'pool' && S.cfg.impStage === 'auto')) lead.needDate = true;
+    if (stage === 'pool') lead.nextAt = null;
     S.leads.set(id, {...lead, id}); write('leads/' + id, lead, 'set'); added++;
   }
   render();
